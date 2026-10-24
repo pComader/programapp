@@ -112,7 +112,12 @@
     return u.getIdToken(!!reintento).then(function (tok) {
       cuerpo.idToken = tok;
       return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(cuerpo) });
-    }).then(function (r) { return r.json(); }).then(function (res) {
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        try { return JSON.parse(t); }
+        catch (e) { throw new Error('respuesta no válida del servidor (HTTP ' + r.status + '): ' + t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)); }
+      });
+    }).then(function (res) {
       if (!res.ok && res.error === 'sesion_caducada' && !reintento) return api(cuerpo, true);
       return res;
     });
@@ -133,9 +138,12 @@
       if (antes !== S.data.semana || !semana) S.dia = diaInicial();
       if (!semana) guardar('pa-cache-' + res.user.email, { user: res.user, data: res.data });
       render();
-    }).catch(function () {
+    }).catch(function (e) {
       S.cargando = false;
-      S.aviso = S.data ? 'Sin conexión. Mostrando la última versión guardada.' : 'Sin conexión.';
+      var det = e && e.message ? e.message : String(e);
+      if (!navigator.onLine) det = 'el dispositivo no tiene internet';
+      else if (/Failed to fetch|NetworkError|Load failed/i.test(det)) det = 'el servidor no respondió o bloqueó la petición';
+      S.aviso = (S.data ? 'No se pudo actualizar: ' : 'No se pudo cargar: ') + det;
       render();
     });
   }
@@ -212,7 +220,16 @@
   // ---------- vista principal ----------
   function render() {
     var d = S.data;
-    if (!d) { $app.innerHTML = '<div class="splash"><div class="brand">ProgramApp</div><div class="' + (S.aviso ? 'err' : 'hint') + '">' + esc(S.aviso || 'Cargando la semana…') + '</div></div>'; return; }
+    if (!d) {
+      var fallo = S.aviso && !S.cargando;
+      $app.innerHTML = '<div class="splash"><div class="brand">ProgramApp</div><div class="' + (fallo ? 'err' : 'hint') + '">' + esc(S.aviso || 'Cargando la semana…') + '</div>' +
+        (fallo ? '<div style="display:flex;gap:8px;margin-top:12px"><button class="btn-ghost" id="reint" type="button">Reintentar</button><button class="btn-ghost" id="salir2" type="button">Cerrar sesión</button></div>' : '') + '</div>';
+      if (fallo) {
+        document.getElementById('reint').onclick = function () { S.aviso = ''; render(); cargar(); };
+        document.getElementById('salir2').onclick = function () { auth.signOut(); };
+      }
+      return;
+    }
     if (!d.dias || !d.dias.length) {
       $app.innerHTML = cabecera(d) + '<div class="empty">Gabi todavía no ha publicado esta semana.</div>';
       enlazarCabecera(); return;

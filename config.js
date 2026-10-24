@@ -9,5 +9,5 @@ window.APP_CONFIG = {
     appId: "1:210078379569:web:b77990f7187c4c2cdaaf10"
   },
   // URL de la implementación del Apps Script (termina en /exec). Se rellena en el paso 2 de LEEME.
-  apiUrl: "PEGAR_AQUI_URL_DEL_APPS_SCRIPT"
+  apiUrl: "https://script.google.com/macros/s/AKfycbx_qvtT1ZNkNCQfF8iXUxheOraXlOXEJJ6mfFJ_PMeudx5Fax0KkMUasN5fWJoudFjw/exec"
 };
