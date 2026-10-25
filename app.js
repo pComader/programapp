@@ -220,6 +220,15 @@
   // ---------- vista principal ----------
   function render() {
     var d = S.data;
+    if (d && !d.valoraciones) d.valoraciones = { leidos: [] };
+    // conservar los desplegables abiertos y el scroll al repintar (p. ej. al marcar un RPE)
+    var abiertos = [].map.call(document.querySelectorAll('#app details'), function (x) { return x.open; });
+    var mismoDia = S._pintado === (d && d.semana) + '|' + S.dia;
+    S._pintado = (d && d.semana) + '|' + S.dia;
+    setTimeout(function () {
+      if (!mismoDia) return;
+      [].forEach.call(document.querySelectorAll('#app details'), function (x, i) { if (abiertos[i]) x.open = true; });
+    }, 0);
     if (!d) {
       var fallo = S.aviso && !S.cargando;
       $app.innerHTML = '<div class="splash"><div class="brand">ProgramApp</div><div class="' + (fallo ? 'err' : 'hint') + '">' + esc(S.aviso || 'Cargando la semana…') + '</div>' +
@@ -231,17 +240,20 @@
       return;
     }
     if (!d.dias || !d.dias.length) {
-      $app.innerHTML = cabecera(d) + '<div class="empty">Gabi todavía no ha publicado esta semana.</div>';
+      $app.innerHTML = cabecera(d) + '<div class="empty">Gabi todavía no ha publicado la semana.' +
+        (d.proxima ? '<br>Próxima publicación: ' + esc(d.proxima) + '.' : '') + '</div>';
       enlazarCabecera(); return;
     }
-    $app.innerHTML = cabecera(d) + ciclo(d) + semana(d) + '<main class="day" id="day">' + dia(d, d.dias[S.dia]) + '</main>' +
+    var aviso = d.publicada === false ? '<div class="unpub">Vista previa · ' + (d.proxima ? 'se publica el ' + esc(d.proxima) : 'aún sin publicar') + '</div>' : '';
+    $app.innerHTML = cabecera(d) + aviso + tarjetaSemana(d) + ciclo(d) + semana(d) + '<main class="day" id="day">' + dia(d, d.dias[S.dia]) + '</main>' +
       (S.aviso ? '<div class="stale">' + esc(S.aviso) + '</div>' : '');
     enlazarCabecera();
+    abrirAvisosPendientes(d, d.dias[S.dia]);
   }
 
   function cabecera(d) {
-    var idx = d.semanas.findIndex(function (s) { return s.nombre === d.semana; });
-    var lbl = d.dias && d.dias.length ? 'Semana ' + fechaCorta(d.dias[0].iso) + ' – ' + fechaCorta(d.dias[d.dias.length - 1].iso) : 'Semana ' + d.semana;
+    var idx = (d.semanas || []).findIndex(function (s) { return s.clave === d.semana; });
+    var lbl = d.dias && d.dias.length ? 'Semana ' + fechaCorta(d.dias[0].iso) + ' – ' + fechaCorta(d.dias[d.dias.length - 1].iso) : 'Programación';
     var ini = (S.user.nombre || '?').trim().charAt(0).toUpperCase();
     return '<header class="top"><div class="weeknav">' +
       '<button class="icon-btn" id="prev" type="button" aria-label="Semana anterior"' + (idx <= 0 ? ' disabled' : '') + '>‹</button>' +
@@ -251,10 +263,10 @@
   }
 
   function enlazarCabecera() {
-    var d = S.data, idx = d.semanas.findIndex(function (s) { return s.nombre === d.semana; });
+    var d = S.data, sems = d.semanas || [], idx = sems.findIndex(function (s) { return s.clave === d.semana; });
     var p = document.getElementById('prev'), n = document.getElementById('next');
-    if (p) p.onclick = function () { if (idx > 0) { S.aviso = 'Cargando…'; render(); cargar(d.semanas[idx - 1].nombre); } };
-    if (n) n.onclick = function () { if (idx < d.semanas.length - 1) { S.aviso = 'Cargando…'; render(); cargar(d.semanas[idx + 1].nombre); } };
+    if (p) p.onclick = function () { if (idx > 0) { S.aviso = 'Cargando…'; render(); cargar(sems[idx - 1].clave); } };
+    if (n) n.onclick = function () { if (idx < sems.length - 1) { S.aviso = 'Cargando…'; render(); cargar(sems[idx + 1].clave); } };
     document.getElementById('perfil').onclick = abrirPerfil;
   }
 
@@ -288,24 +300,30 @@
   function dia(d, x) {
     var pers = (d.personal && d.personal.porDia && d.personal.porDia[x.iso]) || [];
     var fijas = (d.personal && d.personal.fijas) || [];
-    var generales = pers.filter(function (n) { return !n.bloque; });
+    var generales = pers.filter(function (n) { return !n.bloque && !n.clave; });
     var html = '<div class="day-title"><h1>' + NOMBRE_DIA[x.nombre] + ' ' + diaMes(x.iso) + '</h1>' +
       (x.rpe ? '<div class="rpe-pill" style="--c:' + rpeColor(x.rpe) + '"><b>' + esc(x.rpe) + '</b><span>' + (x.rpe === 'Z2' ? 'Recovery' : 'RPE del día') + '</span></div>' : '') + '</div>';
     if (x.foco && x.foco.length) html += '<div class="focus">' + x.foco.map(function (f) { return '<span>' + esc(cap(f)) + '</span>'; }).join('') + '</div>';
+    html += ((d.avisos && d.avisos[x.iso]) || []).map(function (a) {
+      return '<button class="notice" type="button" data-aviso="' + esc(a.id) + '"><span class="lbl">Aviso</span><b>' + esc(a.titulo) + '</b>' +
+        (a.mensaje ? '<span class="txt">' + esc(a.mensaje) + '</span>' : '') + '</button>';
+    }).join('');
     if (generales.length) html += generales.map(notaPersonal).join('');
     if (fijas.length) html += '<details class="foryou fixed"><summary>Tus indicaciones fijas (' + fijas.length + ')</summary><div class="exp-body">' +
       fijas.map(function (n) { return '<div><div class="part-lbl">' + esc(n.tipo) + (n.bloque ? ' · bloque ' + n.bloque : '') + '</div><p style="margin:0;white-space:pre-line">' + esc(n.texto) + '</p></div>'; }).join('') + '</div></details>';
-    html += '<div class="blocks">' + x.bloques.map(function (b) { return bloque(b, pers); }).join('') + '</div>';
+    html += '<div class="blocks">' + x.bloques.map(function (b) { return bloque(b, pers, x, d); }).join('') + '</div>';
     if (x.notasDia && x.notasDia.length) html += '<details class="daynotes"><summary>Más notas del coach</summary><div class="exp-body prose">' +
       x.notasDia.map(function (n) { return (n.titulo ? '<div class="part-lbl">' + esc(n.titulo) + '</div>' : '') + prosa(n.texto); }).join('') + '</div></details>';
+    html += tarjetaSesion(d, x);
     return html;
   }
 
   function notaPersonal(n) {
-    return '<div class="foryou' + (n.bloque ? ' inline' : '') + '"><div class="lbl">Para ti · ' + esc(n.tipo) + '</div><p>' + esc(n.texto) + '</p></div>';
+    var alc = n.alcance === 'SEMANA' ? ' · toda la semana' : n.alcance === 'PERMANENTE' ? ' · siempre' : '';
+    return '<div class="foryou' + (n.bloque || n.clave ? ' inline' : '') + '"><div class="lbl">Para ti · ' + esc(n.tipo) + alc + '</div><p>' + esc(n.texto) + '</p></div>';
   }
 
-  function bloque(b, pers) {
+  function bloque(b, pers, x, d) {
     var todo = b.partes.map(function (p) { return p.etiqueta + '\n' + p.texto; }).join('\n');
     var ctxB = { bloque: levantamiento(b.titulo), desdePower: /DEL POWER SNATCH/.test(norm(todo)) };
     function parte(p) {
@@ -317,7 +335,10 @@
     var prep = b.partes.filter(function (p) { return p.tipo === 'prep'; });
     var main = b.partes.filter(function (p) { return p.tipo === 'main'; });
     var adapt = b.partes.filter(function (p) { return p.tipo === 'adapt'; });
-    var mios = pers.filter(function (n) { return n.bloque === b.n; });
+    var mios = pers.filter(function (n) {
+      if (n.bloque) return n.bloque === b.n;
+      return n.clave ? norm(b.titulo).indexOf(norm(n.clave)) >= 0 : false; // palabra clave: en el título del bloque
+    });
 
     var notas = '';
     if (b.wod) {
@@ -336,7 +357,131 @@
       main.map(parte).join('') +
       (adapt.length ? '<details><summary>Adaptaciones</summary><div class="exp-body">' + adapt.map(parte).join('') + '</div></details>' : '') +
       (notas ? '<details><summary>Notas del coach</summary><div class="exp-body">' + notas + '</div></details>' : '') +
+      (x && x.iso <= d.hoy && b.n ? '<div class="rate"><span class="rate-lbl">Tu RPE</span>' +
+        chips({ tipo: 'bloque', dia: x.iso, bloque: b.n, etiqueta: b.n + ' · ' + b.titulo }, valorDe(d, x.iso + '|Bloque|' + b.n)) + '</div>' : '') +
       '</article>';
+  }
+
+
+  // ---------- valoraciones (RPE) ----------
+  function valorDe(d, k) { return (d.valoraciones && d.valoraciones[k]) || null; }
+  function claveVal(o) {
+    if (o.tipo === 'semana') return o.lunes + '|Semana|';
+    return o.dia + '|' + (o.tipo === 'bloque' ? 'Bloque' : 'Sesión') + '|' + (o.tipo === 'bloque' ? o.bloque : '');
+  }
+  function chips(o, actual) {
+    var datos = ' data-o="' + esc(JSON.stringify(o)) + '"';
+    var h = '<div class="chips" role="group" aria-label="RPE del 1 al 10">';
+    for (var i = 1; i <= 10; i++) {
+      var sel = actual && Number(actual.v) === i;
+      h += '<button type="button" class="rpe-chip' + (sel ? ' on' : '') + '" style="--c:' + rpeColor(String(i)) + '" data-v="' + i + '"' + datos +
+        ' aria-pressed="' + sel + '">' + i + '</button>';
+    }
+    return h + '</div>';
+  }
+  function tarjetaSesion(d, x) {
+    if (x.iso > d.hoy) return '';
+    var o = { tipo: 'sesion', dia: x.iso }, val = valorDe(d, claveVal(o));
+    return '<section class="rate-card"><div class="rate-title">¿Cómo ha ido la sesión?</div>' +
+      '<div class="hint">RPE de toda la sesión · 1 muy fácil · 10 esfuerzo máximo</div>' + chips(o, val) +
+      '<textarea id="com-ses" rows="2" maxlength="500" placeholder="Comentario para Gabi (opcional)">' + esc(val && val.c || '') + '</textarea>' +
+      '<button class="btn" type="button" data-guardar-com="sesion">' + (val ? 'Guardar comentario' : 'Guardar') + '</button></section>';
+  }
+  function tarjetaSemana(d) {
+    if (!d.semanaValorable || !d.dias || !d.dias.length) return '';
+    var val = valorDe(d, d.dias[0].iso + '|Semana|');
+    return '<button class="week-rate' + (val ? ' done' : '') + '" type="button" id="valsem">' +
+      (val ? 'Semana valorada · RPE ' + esc(val.v) + ' · cambiar' : 'Valora tu semana · RPE global') + '</button>';
+  }
+  function abrirValorarSemana() {
+    var d = S.data, o = { tipo: 'semana', lunes: d.dias[0].iso }, val = valorDe(d, claveVal(o));
+    abrirHoja('<div class="row"><h2>Tu semana</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      '<div class="hint">RPE global de la semana del ' + fechaCorta(d.dias[0].iso) + ' · 1 muy fácil · 10 esfuerzo máximo</div>' + chips(o, val) +
+      '<textarea id="com-sem" rows="3" maxlength="500" placeholder="¿Cómo te has sentido? (opcional)">' + esc(val && val.c || '') + '</textarea>' +
+      '<button class="btn btn-primary" type="button" data-guardar-com="semana">Guardar</button>');
+  }
+  function guardarVal(o, valor, comentario) {
+    var d = S.data, k = claveVal(o), antes = d.valoraciones[k];
+    if (valor == null && !antes) { toast('Elige primero un número del 1 al 10.'); return; }
+    var nuevo = { v: valor != null ? valor : antes.v, c: comentario != null ? comentario : (antes && antes.c) || '' };
+    d.valoraciones[k] = nuevo;
+    render(); refrescarHoja(o);
+    var cuerpo = Object.assign({ action: 'valorar', valor: nuevo.v, comentario: nuevo.c }, o);
+    api(cuerpo).then(function (r) {
+      if (!r.ok) throw new Error(r.detalle || r.error);
+      toast(o.tipo === 'bloque' ? 'RPE guardado' : 'Guardado');
+    }).catch(function (e) {
+      if (antes) d.valoraciones[k] = antes; else delete d.valoraciones[k];
+      render(); refrescarHoja(o); toast(mensajeError(e.message));
+    });
+  }
+  function refrescarHoja(o) { if (o.tipo === 'semana' && !$scrim.hidden) { var c = document.getElementById('com-sem'); var t = c ? c.value : null; abrirValorarSemana(); if (t != null) document.getElementById('com-sem').value = t; } }
+  function mensajeError(m) {
+    return { dia_futuro: 'Solo se pueden valorar el día de hoy y los anteriores.', fuera_de_plazo: 'La valoración de la semana se abre el sábado a las 12:00 y cierra el martes a las 23:59.',
+      solo_staff: 'Solo Coach y Admin pueden hacer esto.', fecha_no_valida: 'Revisa la fecha.', aviso_vacio: 'Escribe un título o un mensaje.' }[m] || 'No se pudo guardar. Revisa la conexión.';
+  }
+
+  // ---------- avisos ----------
+  function avisoLeido(id) { return (S.data.valoraciones && (S.data.valoraciones.leidos || []).indexOf(id) >= 0) || leer('pa-leido-' + id); }
+  function abrirAvisosPendientes(d, x) {
+    if (!$scrim.hidden || !x || !d.avisos) return;
+    var pend = (d.avisos[x.iso] || []).filter(function (a) { return !avisoLeido(a.id); });
+    if (pend.length) mostrarAviso(pend[0], x.iso);
+  }
+  function mostrarAviso(a, iso) {
+    abrirHoja('<div class="notice-modal"><div class="lbl">Aviso · ' + esc(NOMBRE_DIA[S.data.dias[S.dia].nombre]) + ' ' + diaMes(iso) + '</div>' +
+      '<h2>' + esc(a.titulo) + '</h2>' + (a.mensaje ? '<p>' + esc(a.mensaje) + '</p>' : '') + '</div>' +
+      '<button class="btn btn-primary" type="button" data-close>Entendido</button>');
+    if (!avisoLeido(a.id)) {
+      guardar('pa-leido-' + a.id, true);
+      (S.data.valoraciones.leidos = S.data.valoraciones.leidos || []).push(a.id);
+      api({ action: 'valorar', tipo: 'leido', dia: iso, avisoId: a.id, etiqueta: a.titulo }).catch(function () {});
+    }
+  }
+
+  // ---------- avisos: crear y retirar (Coach / Admin) ----------
+  function abrirGestionAvisos(lista) {
+    var d = S.data, hoyDia = d.dias && d.dias[S.dia] ? d.dias[S.dia].iso : d.hoy;
+    var opts = ['Todos', 'Box', 'Individual', 'Otro', 'Coach'].map(function (g) { return '<option>' + g + '</option>'; }).join('') +
+      ((d.atletas || []).length ? '<optgroup label="Un atleta">' + d.atletas.map(function (a) {
+        return '<option value="' + esc(a.email) + '">' + esc(a.nombre) + (a.grupo ? ' · ' + esc(a.grupo) : '') + '</option>'; }).join('') + '</optgroup>' : '');
+    abrirHoja('<div class="row"><h2>Avisos</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      '<form id="avf" class="avf">' +
+      '<label for="av-para">Para</label><select id="av-para">' + opts + '</select>' +
+      '<div class="two"><div><label for="av-desde">Desde</label><input id="av-desde" type="date" required value="' + hoyDia + '"></div>' +
+      '<div><label for="av-hasta">Hasta (opcional)</label><input id="av-hasta" type="date"></div></div>' +
+      '<label for="av-tit">Título</label><input id="av-tit" maxlength="80" placeholder="Ej. Box cerrado por la tarde">' +
+      '<label for="av-msg">Mensaje</label><textarea id="av-msg" rows="3" maxlength="1000" placeholder="Lo que verán los atletas al abrir ese día"></textarea>' +
+      '<button class="btn btn-primary" type="submit" id="av-env">Enviar aviso</button></form>' +
+      '<div class="part-lbl">Avisos activos</div><div id="av-lista" class="av-lista">' + (lista ? listaAvisosHtml(lista) : '<div class="hint">Cargando…</div>') + '</div>');
+    document.getElementById('avf').onsubmit = function (ev) {
+      ev.preventDefault();
+      var btn = document.getElementById('av-env'); btn.disabled = true; btn.textContent = 'Enviando…';
+      api({ action: 'aviso_crear', aviso: { para: val('av-para'), desde: val('av-desde'), hasta: val('av-hasta'), titulo: val('av-tit'), mensaje: val('av-msg') } })
+        .then(function (r) {
+          if (!r.ok) throw new Error(r.detalle || r.error);
+          toast('Aviso enviado'); abrirGestionAvisos(r.avisos); cargar(S.data.semana);
+        }).catch(function (e) { btn.disabled = false; btn.textContent = 'Enviar aviso'; toast(mensajeError(e.message)); });
+    };
+    if (!lista) api({ action: 'avisos_lista' }).then(function (r) { var el = document.getElementById('av-lista'); if (el && r.ok) el.innerHTML = listaAvisosHtml(r.avisos); });
+  }
+  function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+  function listaAvisosHtml(lista) {
+    if (!lista.length) return '<div class="hint">No hay avisos activos de hoy en adelante.</div>';
+    return lista.map(function (a) {
+      var nom = a.para.indexOf('@') >= 0 ? ((S.data.atletas || []).filter(function (x) { return x.email === a.para.toLowerCase(); })[0] || {}).nombre || a.para : a.para;
+      return '<div class="av-item"><div><b>' + esc(a.titulo) + '</b><div class="hint">' + fechaCorta(a.desde) + (a.hasta && a.hasta !== a.desde ? ' – ' + fechaCorta(a.hasta) : '') +
+        ' · ' + esc(nom) + (a.por ? ' · ' + esc(a.por) : '') + '</div></div><button class="btn-ghost" type="button" data-retirar="' + esc(a.id) + '">Retirar</button></div>';
+    }).join('');
+  }
+
+  // ---------- aviso breve en pantalla ----------
+  var tToast = null;
+  function toast(t) {
+    var el = document.getElementById('toast');
+    if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+    el.textContent = t; el.classList.add('show');
+    clearTimeout(tToast); tToast = setTimeout(function () { el.classList.remove('show'); }, 2600);
   }
 
   // ---------- hojas ----------
@@ -367,7 +512,10 @@
         return '<label for="' + id + '">' + cap(l) + '<input id="' + id + '" data-lev="' + l + '" type="number" inputmode="decimal" min="0" step="0.5" value="' + (m[l] || '') + '" placeholder="kg"></label>';
       }).join('') + '</div><div style="height:12px"></div><button class="btn btn-primary" type="submit" id="gm">Guardar marcas</button></form>' +
       '<div id="gmst" class="hint" role="status"></div>' +
+      (S.data && S.data.staff ? '<div><div class="part-lbl">Coach</div><div class="hint">Mensajes que verán los atletas al abrir un día.</div></div>' +
+        '<button class="btn" type="button" id="gestav">Enviar o retirar avisos</button>' : '') +
       '<button class="btn" type="button" id="logout">Cerrar sesión</button>');
+    var ga = document.getElementById('gestav'); if (ga) ga.onclick = function () { abrirGestionAvisos(null); };
     document.getElementById('marcasf').onsubmit = function (ev) {
       ev.preventDefault();
       var nuevas = {};
@@ -389,7 +537,37 @@
     var b = e.target.closest('.day-btn');
     if (b) { S.dia = +b.dataset.dia; render(); window.scrollTo({ top: 0 }); return; }
     var v = e.target.closest('.vid');
-    if (v) { e.preventDefault(); abrirVideo(+v.dataset.v); }
+    if (v) { e.preventDefault(); abrirVideo(+v.dataset.v); return; }
+    var c = e.target.closest('.rpe-chip');
+    if (c) {
+      var o = JSON.parse(c.dataset.o), com = null;
+      if (o.tipo === 'sesion') { var ts = document.getElementById('com-ses'); com = ts ? ts.value.trim() : null; }
+      if (o.tipo === 'semana') { var tw = document.getElementById('com-sem'); com = tw ? tw.value.trim() : null; }
+      guardarVal(o, +c.dataset.v, com); return;
+    }
+    var g = e.target.closest('[data-guardar-com]');
+    if (g) {
+      var t = g.dataset.guardarCom, dd = S.data;
+      if (t === 'sesion') guardarVal({ tipo: 'sesion', dia: dd.dias[S.dia].iso }, null, document.getElementById('com-ses').value.trim());
+      else { guardarVal({ tipo: 'semana', lunes: dd.dias[0].iso }, null, document.getElementById('com-sem').value.trim()); }
+      if (t === 'semana' && dd.valoraciones[dd.dias[0].iso + '|Semana|']) cerrarHoja();
+      return;
+    }
+    if (e.target.closest('#valsem')) { abrirValorarSemana(); return; }
+    var n = e.target.closest('[data-aviso]');
+    if (n) {
+      var a = ((S.data.avisos || {})[S.data.dias[S.dia].iso] || []).filter(function (x) { return x.id === n.dataset.aviso; })[0];
+      if (a) mostrarAviso(a, S.data.dias[S.dia].iso); return;
+    }
+    var rt = e.target.closest('[data-retirar]');
+    if (rt) {
+      if (rt.dataset.confirmar !== '1') { rt.dataset.confirmar = '1'; rt.textContent = '¿Seguro?'; return; }
+      rt.disabled = true;
+      api({ action: 'aviso_off', id: rt.dataset.retirar }).then(function (r) {
+        if (!r.ok) throw new Error(r.detalle || r.error);
+        document.getElementById('av-lista').innerHTML = listaAvisosHtml(r.avisos); toast('Aviso retirado'); cargar(S.data.semana);
+      }).catch(function (er) { rt.disabled = false; toast(mensajeError(er.message)); });
+    }
   });
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible' && S.user && Date.now() - S.ultimaCarga > 5 * 60 * 1000 && !S.cargando) cargar(S.data && S.data.semana);
