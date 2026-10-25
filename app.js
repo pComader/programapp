@@ -128,7 +128,7 @@
     return api({ action: 'semana', semana: semana || null }).then(function (res) {
       S.cargando = false;
       if (!res.ok) {
-        if (res.error === 'no_autorizado') return pantallaNoAutorizado(res.email);
+        if (res.error === 'no_autorizado') return pantallaSolicitud(res.email, res.solicitud);
         S.aviso = 'No se pudo cargar la programación (' + (res.detalle || res.error) + ').';
         return render();
       }
@@ -161,7 +161,8 @@
       '<div class="brand">ProgramApp</div>' +
       '<p>La programación semanal de Gabi. Entra con la cuenta que le diste a Gabi.</p>' +
       '<button class="btn btn-primary" id="gbtn" type="button">Entrar con Google</button>' +
-      '<div class="or">o con un enlace a tu correo</div>' +
+      (CFG.microsoft ? '<button class="btn" id="msbtn" type="button">Entrar con Microsoft (Outlook, Hotmail)</button>' : '') +
+      '<div class="or">o con cualquier correo (Outlook, Hotmail, iCloud…)</div>' +
       '<form id="mailf" class="field"><label for="mail">Email</label>' +
       '<input id="mail" type="email" autocomplete="email" inputmode="email" required placeholder="tu@email.com">' +
       '<button class="btn" type="submit" id="mailbtn">Enviarme el enlace</button></form>' +
@@ -173,6 +174,15 @@
       auth.signInWithPopup(p).catch(function (e) {
         if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') return auth.signInWithRedirect(p);
         if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') pantallaLogin({ t: 'No se pudo entrar con Google (' + e.code + ').' });
+      });
+    };
+    if (CFG.microsoft) document.getElementById('msbtn').onclick = function () {
+      var p = new firebase.auth.OAuthProvider('microsoft.com');
+      p.setCustomParameters({ prompt: 'select_account' });
+      auth.signInWithPopup(p).catch(function (e) {
+        if (e.code === 'auth/popup-blocked') return auth.signInWithRedirect(p);
+        if (e.code === 'auth/account-exists-with-different-credential') return pantallaLogin({ t: 'Ese correo ya entró antes con otro método (Google o enlace). Usa ese mismo método.' });
+        if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') pantallaLogin({ t: 'No se pudo entrar con Microsoft (' + e.code + ').' });
       });
     };
     document.getElementById('mailf').onsubmit = function (ev) {
@@ -208,23 +218,15 @@
     });
   }
 
-  function pantallaNoAutorizado(email) {
-    $app.innerHTML =
-      '<section class="login"><div class="brand">ProgramApp</div>' +
-      '<p>Has entrado como <b>' + esc(email) + '</b>, pero ese email no está dado de alta en la programación.</p>' +
-      '<p>Pídele a Gabi que lo añada a la lista de atletas y vuelve a abrir la app.</p>' +
-      '<button class="btn" id="salir" type="button">Entrar con otra cuenta</button></section>';
-    document.getElementById('salir').onclick = function () { auth.signOut(); };
-  }
-
   // ---------- vista principal ----------
   function render() {
     var d = S.data;
     if (d && !d.valoraciones) d.valoraciones = { leidos: [] };
     // conservar los desplegables abiertos y el scroll al repintar (p. ej. al marcar un RPE)
     var abiertos = [].map.call(document.querySelectorAll('#app details'), function (x) { return x.open; });
-    var mismoDia = S._pintado === (d && d.semana) + '|' + S.dia;
-    S._pintado = (d && d.semana) + '|' + S.dia;
+    var claveP = (S.vista || 'semana') + '|' + (d && d.semana) + '|' + S.dia;
+    var mismoDia = S._pintado === claveP && !S._abrir;
+    S._pintado = claveP;
     setTimeout(function () {
       if (!mismoDia) return;
       [].forEach.call(document.querySelectorAll('#app details'), function (x, i) { if (abiertos[i]) x.open = true; });
@@ -239,6 +241,8 @@
       }
       return;
     }
+    if (S.vista === 'ajustes') return renderAjustes();
+    if (S.vista === 'ficha') return renderFicha();
     if (!d.dias || !d.dias.length) {
       $app.innerHTML = cabecera(d) + '<div class="empty">Gabi todavía no ha publicado la semana.' +
         (d.proxima ? '<br>Próxima publicación: ' + esc(d.proxima) + '.' : '') + '</div>';
@@ -267,7 +271,7 @@
     var p = document.getElementById('prev'), n = document.getElementById('next');
     if (p) p.onclick = function () { if (idx > 0) { S.aviso = 'Cargando…'; render(); cargar(sems[idx - 1].clave); } };
     if (n) n.onclick = function () { if (idx < sems.length - 1) { S.aviso = 'Cargando…'; render(); cargar(sems[idx + 1].clave); } };
-    document.getElementById('perfil').onclick = abrirPerfil;
+    document.getElementById('perfil').onclick = abrirAjustes;
   }
 
   function ciclo(d) {
@@ -308,6 +312,7 @@
       return '<button class="notice" type="button" data-aviso="' + esc(a.id) + '"><span class="lbl">Aviso</span><b>' + esc(a.titulo) + '</b>' +
         (a.mensaje ? '<span class="txt">' + esc(a.mensaje) + '</span>' : '') + '</button>';
     }).join('');
+    html += htmlRecsDia(d, x);
     if (generales.length) html += generales.map(notaPersonal).join('');
     if (fijas.length) html += '<details class="foryou fixed"><summary>Tus indicaciones fijas (' + fijas.length + ')</summary><div class="exp-body">' +
       fijas.map(function (n) { return '<div><div class="part-lbl">' + esc(n.tipo) + (n.bloque ? ' · bloque ' + n.bloque : '') + '</div><p style="margin:0;white-space:pre-line">' + esc(n.texto) + '</p></div>'; }).join('') + '</div></details>';
@@ -418,7 +423,9 @@
   function refrescarHoja(o) { if (o.tipo === 'semana' && !$scrim.hidden) { var c = document.getElementById('com-sem'); var t = c ? c.value : null; abrirValorarSemana(); if (t != null) document.getElementById('com-sem').value = t; } }
   function mensajeError(m) {
     return { dia_futuro: 'Solo se pueden valorar el día de hoy y los anteriores.', fuera_de_plazo: 'La valoración de la semana se abre el sábado a las 12:00 y cierra el martes a las 23:59.',
-      solo_staff: 'Solo Coach y Admin pueden hacer esto.', fecha_no_valida: 'Revisa la fecha.', aviso_vacio: 'Escribe un título o un mensaje.' }[m] || 'No se pudo guardar. Revisa la conexión.';
+      solo_staff: 'Solo Coach y Admin pueden hacer esto.', falta_nombre: 'Escribe tu nombre y apellidos.', falta_marca: 'Pon un nombre a la marca.',
+      valor_no_valido: 'Revisa el valor (tiempo como mm:ss, por ejemplo 4:35).', tipo_no_valido: 'Elige un tipo válido.', falta_ejercicio: 'Escribe el ejercicio.',
+      video_no_valido: 'El vídeo tiene que ser un enlace de YouTube.', atleta_no_encontrado: 'No encuentro a ese atleta.', solicitud_no_encontrada: 'Esa solicitud ya estaba resuelta.', fecha_no_valida: 'Revisa la fecha.', aviso_vacio: 'Escribe un título o un mensaje.' }[m] || 'No se pudo guardar. Revisa la conexión.';
   }
 
   // ---------- avisos ----------
@@ -440,27 +447,44 @@
   }
 
   // ---------- avisos: crear y retirar (Coach / Admin) ----------
-  function abrirGestionAvisos(lista) {
+  function abrirGestionAvisos(lista, atletaPre) {
     var d = S.data, hoyDia = d.dias && d.dias[S.dia] ? d.dias[S.dia].iso : d.hoy;
-    var opts = ['Todos', 'Box', 'Individual', 'Otro', 'Coach'].map(function (g) { return '<option>' + g + '</option>'; }).join('') +
-      ((d.atletas || []).length ? '<optgroup label="Un atleta">' + d.atletas.map(function (a) {
-        return '<option value="' + esc(a.email) + '">' + esc(a.nombre) + (a.grupo ? ' · ' + esc(a.grupo) : '') + '</option>'; }).join('') + '</optgroup>' : '');
+    S._avAtleta = atletaPre || null;
+    var opts = ['Todos', 'Box', 'Individual', 'Otro', 'Coach'].map(function (g) { return '<option value="' + g + '">' + g + '</option>'; }).join('') +
+      '<option value="__uno"' + (atletaPre ? ' selected' : '') + '>Un atleta concreto…</option>';
     abrirHoja('<div class="row"><h2>Avisos</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
       '<form id="avf" class="avf">' +
       '<label for="av-para">Para</label><select id="av-para">' + opts + '</select>' +
+      '<div id="av-elegido"></div><div id="av-pick" hidden></div>' +
       '<div class="two"><div><label for="av-desde">Desde</label><input id="av-desde" type="date" required value="' + hoyDia + '"></div>' +
       '<div><label for="av-hasta">Hasta (opcional)</label><input id="av-hasta" type="date"></div></div>' +
       '<label for="av-tit">Título</label><input id="av-tit" maxlength="80" placeholder="Ej. Box cerrado por la tarde">' +
-      '<label for="av-msg">Mensaje</label><textarea id="av-msg" rows="3" maxlength="1000" placeholder="Lo que verán los atletas al abrir ese día"></textarea>' +
+      '<label for="av-msg">Mensaje</label><textarea id="av-msg" rows="3" maxlength="1000" placeholder="Lo que verán al abrir ese día"></textarea>' +
       '<button class="btn btn-primary" type="submit" id="av-env">Enviar aviso</button></form>' +
       '<div class="part-lbl">Avisos activos</div><div id="av-lista" class="av-lista">' + (lista ? listaAvisosHtml(lista) : '<div class="hint">Cargando…</div>') + '</div>');
+    var sel = document.getElementById('av-para');
+    function pintarElegido() {
+      var el = document.getElementById('av-elegido'), pick = document.getElementById('av-pick');
+      if (sel.value !== '__uno') { el.innerHTML = ''; pick.hidden = true; return; }
+      if (S._avAtleta) {
+        pick.hidden = true;
+        el.innerHTML = '<div class="chosen"><div><b>' + esc(S._avAtleta.nombre) + '</b><div class="hint">' + esc(S._avAtleta.email) + '</div></div><button type="button" class="btn-ghost" id="av-cambiar">Cambiar</button></div>';
+        document.getElementById('av-cambiar').onclick = function () { S._avAtleta = null; pintarElegido(); };
+      } else {
+        el.innerHTML = ''; pick.hidden = false;
+        buscadorAtletas('av-pick', function (a) { S._avAtleta = a; pintarElegido(); }, { soloActivos: true });
+      }
+    }
+    sel.onchange = pintarElegido; pintarElegido();
     document.getElementById('avf').onsubmit = function (ev) {
       ev.preventDefault();
+      if (sel.value === '__uno' && !S._avAtleta) { toast('Elige y confirma el atleta.'); return; }
+      var para = sel.value === '__uno' ? S._avAtleta.email : sel.value;
       var btn = document.getElementById('av-env'); btn.disabled = true; btn.textContent = 'Enviando…';
-      api({ action: 'aviso_crear', aviso: { para: val('av-para'), desde: val('av-desde'), hasta: val('av-hasta'), titulo: val('av-tit'), mensaje: val('av-msg') } })
+      api({ action: 'aviso_crear', aviso: { para: para, desde: val('av-desde'), hasta: val('av-hasta'), titulo: val('av-tit'), mensaje: val('av-msg') } })
         .then(function (r) {
           if (!r.ok) throw new Error(r.detalle || r.error);
-          toast('Aviso enviado'); abrirGestionAvisos(r.avisos); cargar(S.data.semana);
+          toast('Aviso enviado'); abrirGestionAvisos(r.avisos); if (!S.vista) cargar(S.data.semana);
         }).catch(function (e) { btn.disabled = false; btn.textContent = 'Enviar aviso'; toast(mensajeError(e.message)); });
     };
     if (!lista) api({ action: 'avisos_lista' }).then(function (r) { var el = document.getElementById('av-lista'); if (el && r.ok) el.innerHTML = listaAvisosHtml(r.avisos); });
@@ -484,6 +508,397 @@
     clearTimeout(tToast); tToast = setTimeout(function () { el.classList.remove('show'); }, 2600);
   }
 
+
+  // =====================================================================
+  //  AJUSTES · tema, marcas, avisos, notas, recomendaciones, instalar, coach
+  // =====================================================================
+  var TEMAS = { auto: 'Automático', claro: 'Claro', oscuro: 'Oscuro' };
+  function aplicarTema(t) {
+    var r = document.documentElement;
+    if (t === 'claro') r.setAttribute('data-theme', 'light');
+    else if (t === 'oscuro') r.setAttribute('data-theme', 'dark');
+    else r.removeAttribute('data-theme');
+  }
+  aplicarTema(leer('pa-tema') || 'auto');
+
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); S.instalar = e; });
+
+  function abrirAjustes() { cerrarHoja(); S.vista = 'ajustes'; render(); window.scrollTo({ top: 0 }); }
+  function volverSemana() { S.vista = null; S.ficha = null; render(); window.scrollTo({ top: 0 }); }
+
+  function cabeceraVista(titulo, atras) {
+    return '<header class="top"><button class="btn-ghost" type="button" id="atras">‹ ' + esc(atras) + '</button>' +
+      '<span class="view-title">' + esc(titulo) + '</span></header>';
+  }
+
+  function seccion(id, titulo, cuerpo, extra) {
+    return '<details class="set" id="' + id + '"><summary>' + esc(titulo) + (extra ? ' <span class="badge">' + esc(extra) + '</span>' : '') + '</summary>' +
+      '<div class="set-body">' + cuerpo + '</div></details>';
+  }
+
+  function renderAjustes() {
+    var d = S.data || {}, u = S.user || {};
+    var tema = leer('pa-tema') || 'auto';
+    var html = cabeceraVista('Ajustes', 'Semana') +
+      '<section class="me"><div class="who big">' + esc((u.nombre || '?').charAt(0).toUpperCase()) + '</div><div><b>' + esc(u.nombre) + '</b>' +
+      '<div class="hint">' + esc(u.email) + (u.grupo ? ' · ' + esc(u.grupo) : '') + '</div></div></section>';
+
+    html += seccion('s-tema', 'Apariencia', '<div class="seg" role="group" aria-label="Tema">' + Object.keys(TEMAS).map(function (k) {
+      return '<button type="button" data-tema="' + k + '" aria-pressed="' + (tema === k) + '">' + TEMAS[k] + '</button>'; }).join('') + '</div>' +
+      '<div class="hint">Automático sigue el modo claro u oscuro de tu móvil u ordenador.</div>');
+
+    html += seccion('s-marcas', 'Mis marcas', htmlMarcas(d));
+    html += seccion('s-avisos', 'Avisos de la semana', htmlAvisosSemana(d), contar(d.avisos));
+    html += seccion('s-notas', 'Mis notas del coach', htmlNotasSemana(d));
+    var activas = (d.recomendaciones || []).filter(function (r) { return r.estado === 'Activa'; });
+    html += seccion('s-recs', 'Mis ejercicios recomendados', htmlRecsAtleta(d.recomendaciones || []), activas.length ? String(activas.length) : '');
+    html += seccion('s-instalar', 'Instalar la app', htmlInstalar());
+    if (d.staff) html += seccion('s-coach', 'Coach', htmlCoach(d), d.solicitudesPendientes ? d.solicitudesPendientes + ' solicitud' + (d.solicitudesPendientes > 1 ? 'es' : '') : '');
+    html += '<button class="btn" type="button" id="logout">Cerrar sesión</button>';
+    $app.innerHTML = html;
+    document.getElementById('atras').onclick = volverSemana;
+    document.getElementById('logout').onclick = function () { S.vista = null; auth.signOut(); };
+    enlazarMarcas();
+    var ab = S._abrir; S._abrir = null; if (ab && document.getElementById(ab)) document.getElementById(ab).open = true;
+  }
+
+  function contar(porDia) {
+    var n = 0, vistos = {};
+    Object.keys(porDia || {}).forEach(function (k) { porDia[k].forEach(function (a) { if (!vistos[a.id]) { vistos[a.id] = 1; n++; } }); });
+    return n ? String(n) : '';
+  }
+
+  // ---------- Mis marcas ----------
+  function htmlMarcas(d) {
+    var m = (S.user && S.user.marcas) || {};
+    var otras = agruparMarcas((d.misMarcas || []).filter(function (x) { return LEVANTAMIENTOS.indexOf(x.marca) < 0; }));
+    var nombres = Object.keys(otras);
+    return '<div class="part-lbl">Repeticiones máximas (1RM, kg)</div><div class="hint">Con tus 1RM, los porcentajes de Gabi se convierten en kilos.</div>' +
+      '<form id="marcasf"><div class="marks">' + LEVANTAMIENTOS.map(function (l) {
+        var id = 'rm-' + l.replace(/\s/g, '');
+        return '<label for="' + id + '">' + cap(l) + '<input id="' + id + '" data-lev="' + l + '" type="number" inputmode="decimal" min="0" step="0.5" value="' + (m[l] || '') + '" placeholder="kg"></label>';
+      }).join('') + '</div><button class="btn btn-primary" type="submit" id="gm">Guardar 1RM</button></form>' +
+      '<div class="part-lbl" style="margin-top:8px">Otras marcas</div>' +
+      (nombres.length ? '<div class="pr-list">' + nombres.map(function (n) {
+        var g = otras[n];
+        return '<details class="pr"><summary><b>' + esc(cap(n)) + '</b><span class="pr-best">' + esc(fmtMarca(g.mejor)) + '</span></summary>' +
+          '<div class="pr-hist">' + g.lista.map(function (x) {
+            return '<div class="pr-row"><span>' + fechaCorta(x.fecha) + '</span><b>' + esc(fmtMarca(x)) + '</b>' + (x.notas ? '<span class="hint">' + esc(x.notas) + '</span>' : '') +
+              '<button type="button" class="x" data-borrar-marca="' + esc(JSON.stringify({ fecha: x.fecha, marca: x.marca, valor: x.valor })) + '" aria-label="Borrar">×</button></div>';
+          }).join('') + '</div></details>';
+      }).join('') + '</div>' : '<div class="hint">Aún no tienes marcas personalizadas (Fran, 2K row, max HSPU…).</div>') +
+      '<form id="prf" class="prf"><datalist id="pr-nombres">' + nombres.map(function (n) { return '<option value="' + esc(cap(n)) + '">'; }).join('') + '</datalist>' +
+      '<label for="pr-n">Nueva marca</label><input id="pr-n" list="pr-nombres" maxlength="60" placeholder="Ej. Fran, 2K row, Max HSPU" required>' +
+      '<div class="three"><div><label for="pr-t">Tipo</label><select id="pr-t"><option>Kilos</option><option>Tiempo</option><option>Calorías</option><option>Reps</option></select></div>' +
+      '<div><label for="pr-v">Valor</label><input id="pr-v" required placeholder="kg"></div>' +
+      '<div><label for="pr-f">Fecha</label><input id="pr-f" type="date" value="' + (d.hoy || '') + '" max="' + (d.hoy || '') + '"></div></div>' +
+      '<input id="pr-nt" maxlength="200" placeholder="Nota (opcional)">' +
+      '<button class="btn" type="submit" id="pr-ok">Añadir marca</button></form>';
+  }
+  function agruparMarcas(lista) {
+    var g = {};
+    lista.forEach(function (x) {
+      var k = x.marca.toUpperCase();
+      var e = g[k] = g[k] || { lista: [], mejor: null };
+      e.lista.push(x);
+      if (!e.mejor || mejorQue(x, e.mejor)) e.mejor = x;
+    });
+    return g;
+  }
+  function valorNum(x) { if (x.tipo === 'Tiempo') { var p = String(x.valor).split(':'); return Number(p[0]) * 60 + Number(p[1] || 0); } return parseFloat(x.valor); }
+  function mejorQue(a, b) { return a.tipo === 'Tiempo' ? valorNum(a) < valorNum(b) : valorNum(a) > valorNum(b); }
+  function fmtMarca(x) { if (!x) return ''; var u = { Kilos: ' kg', Calorías: ' cal', Reps: ' reps', Tiempo: '' }[x.tipo] || ''; return x.valor + u; }
+
+  function enlazarMarcas() {
+    var f = document.getElementById('marcasf');
+    if (f) f.onsubmit = function (ev) {
+      ev.preventDefault();
+      var nuevas = {};
+      f.querySelectorAll('input[data-lev]').forEach(function (inp) { var n = parseFloat(inp.value); nuevas[inp.dataset.lev] = n > 0 ? n : ''; });
+      var btn = document.getElementById('gm'); btn.disabled = true; btn.textContent = 'Guardando…';
+      api({ action: 'marcas', marcas: nuevas }).then(function (r) {
+        if (!r.ok) throw new Error(r.detalle || r.error);
+        var limpio = {}; Object.keys(nuevas).forEach(function (k) { if (nuevas[k]) limpio[k] = nuevas[k]; });
+        S.user.marcas = limpio; toast('1RM guardados'); recargarDatos('s-marcas');
+      }).catch(function (e) { btn.disabled = false; btn.textContent = 'Guardar 1RM'; toast(mensajeError(e.message)); });
+    };
+    var t = document.getElementById('pr-t'), v = document.getElementById('pr-v');
+    if (t) t.onchange = function () { v.placeholder = { Kilos: 'kg', Tiempo: 'mm:ss', Calorías: 'cal', Reps: 'reps' }[t.value]; v.inputMode = t.value === 'Tiempo' ? 'text' : 'decimal'; };
+    var pf = document.getElementById('prf');
+    if (pf) pf.onsubmit = function (ev) {
+      ev.preventDefault();
+      var b = document.getElementById('pr-ok'); b.disabled = true; b.textContent = 'Guardando…';
+      api({ action: 'marca', marca: { marca: val('pr-n'), tipo: t.value, valor: val('pr-v'), fecha: val('pr-f'), notas: val('pr-nt') } }).then(function (r) {
+        if (!r.ok) throw new Error(r.detalle || r.error);
+        S.data.misMarcas = r.marcas; toast('Marca añadida'); S._abrir = 's-marcas'; render();
+      }).catch(function (e) { b.disabled = false; b.textContent = 'Añadir marca'; toast(mensajeError(e.message)); });
+    };
+  }
+
+  function recargarDatos(abrir) {
+    S._abrir = abrir;
+    api({ action: 'semana', semana: S.data && S.data.semana }).then(function (res) {
+      if (res.ok) { S.user = res.user; S.data = res.data; prepararVideos(S.data.videos); }
+      S._abrir = abrir; render();
+    }).catch(function () { S._abrir = abrir; render(); });
+  }
+
+  // ---------- Avisos y notas de la semana ----------
+  function diasSemana(d) { return d.dias || []; }
+  function htmlAvisosSemana(d) {
+    var filas = diasSemana(d).map(function (x) {
+      var av = (d.avisos && d.avisos[x.iso]) || [];
+      if (!av.length) return '';
+      return '<div class="wk-day"><div class="part-lbl">' + NOMBRE_DIA[x.nombre] + ' ' + diaMes(x.iso) + '</div>' + av.map(function (a) {
+        var leido = (d.valoraciones && (d.valoraciones.leidos || []).indexOf(a.id) >= 0);
+        return '<div class="wk-item"><b>' + esc(a.titulo) + '</b>' + (leido ? ' <span class="hint">· leído</span>' : '') + (a.mensaje ? '<p>' + esc(a.mensaje) + '</p>' : '') + '</div>';
+      }).join('') + '</div>';
+    }).join('');
+    return filas || '<div class="hint">No hay avisos esta semana.</div>';
+  }
+  function htmlNotasSemana(d) {
+    var p = d.personal || { fijas: [], porDia: {} };
+    var filas = diasSemana(d).map(function (x) {
+      var notas = (p.porDia && p.porDia[x.iso]) || [];
+      if (!notas.length) return '';
+      return '<div class="wk-day"><div class="part-lbl">' + NOMBRE_DIA[x.nombre] + ' ' + diaMes(x.iso) + '</div>' + notas.map(function (n) {
+        var donde = n.bloque ? 'Bloque ' + n.bloque : n.clave ? 'Bloques de ' + n.clave : 'Todo el día';
+        return '<div class="wk-item"><span class="hint">' + esc(n.tipo) + ' · ' + esc(donde) + (n.alcance === 'SEMANA' ? ' · toda la semana' : '') + '</span><p>' + esc(n.texto) + '</p></div>';
+      }).join('') + '</div>';
+    }).join('');
+    var fijas = (p.fijas || []).length ? '<div class="wk-day"><div class="part-lbl">Siempre</div>' + p.fijas.map(function (n) {
+      return '<div class="wk-item"><span class="hint">' + esc(n.tipo) + '</span><p>' + esc(n.texto) + '</p></div>'; }).join('') + '</div>' : '';
+    return (filas + fijas) || '<div class="hint">Gabi no te ha dejado notas personales esta semana.</div>';
+  }
+
+  // ---------- Recomendaciones (vista atleta) ----------
+  function recItem(r, coach) {
+    var meta = [r.tipo, r.zona].filter(Boolean).join(' · ');
+    var cuando = r.desde ? (r.fin ? fechaCorta(r.desde) + ' – ' + fechaCorta(r.fin) : 'desde ' + fechaCorta(r.desde)) : '';
+    var cuenta = r.tipo === 'Competición' && r.objetivo ? ' · ' + diasHasta(r.objetivo) : '';
+    return '<div class="rec' + (r.tipo === 'Competición' ? ' comp' : '') + '"><div class="rec-head"><b>' + esc(r.ejercicio) + '</b><span class="chip">' + esc(meta) + '</span></div>' +
+      (r.dosis ? '<div class="rec-dosis">' + esc(r.dosis) + '</div>' : '') +
+      (r.notas ? '<div class="hint">' + esc(r.notas) + '</div>' : '') +
+      '<div class="rec-foot"><span class="hint">' + esc(cuando + cuenta) + (r.por ? ' · ' + esc(r.por) : '') + '</span>' +
+      (r.video ? '<button type="button" class="btn-ghost" data-video-url="' + esc(r.video) + '" data-video-nombre="' + esc(r.ejercicio) + '">▶ Vídeo</button>' : '') +
+      (coach && r.estado === 'Activa' ? '<button type="button" class="btn-ghost" data-finalizar="' + esc(r.id) + '">Finalizar</button>' : '') + '</div></div>';
+  }
+  function diasHasta(iso) {
+    var n = Math.round((Date.parse(iso) - Date.parse(S.data.hoy)) / 864e5);
+    return n > 1 ? 'faltan ' + n + ' días' : n === 1 ? 'mañana' : n === 0 ? 'hoy' : 'pasada';
+  }
+  function htmlRecsAtleta(recs, coach) {
+    var act = recs.filter(function (r) { return r.estado === 'Activa'; });
+    var fin = recs.filter(function (r) { return r.estado !== 'Activa'; });
+    var porZona = {};
+    act.forEach(function (r) { (porZona[r.zona] = porZona[r.zona] || []).push(r); });
+    return (act.length ? Object.keys(porZona).map(function (z) {
+      return '<div class="part-lbl">' + esc(z) + '</div>' + porZona[z].map(function (r) { return recItem(r, coach); }).join('');
+    }).join('') : '<div class="hint">No hay ejercicios recomendados activos.</div>') +
+      (fin.length ? '<details class="hist"><summary>Historial (' + fin.length + ')</summary><div class="exp-body">' + fin.map(function (r) { return recItem(r, false); }).join('') + '</div></details>' : '');
+  }
+  /** Recomendaciones activas en un día concreto (para la vista del día). */
+  function recsDelDia(d, iso) {
+    return (d.recomendaciones || []).filter(function (r) {
+      return r.estado === 'Activa' && (!r.desde || r.desde <= iso) && (!r.fin || iso <= r.fin);
+    });
+  }
+  function htmlRecsDia(d, x) {
+    var recs = recsDelDia(d, x.iso);
+    var comp = (d.recomendaciones || []).filter(function (r) { return r.estado === 'Activa' && r.tipo === 'Competición' && r.objetivo && r.objetivo >= d.hoy; });
+    var h = comp.map(function (r) {
+      return '<div class="countdown"><div class="cd-txt"><span class="lbl">Competición · ' + fechaCorta(r.objetivo) + '</span><b>' + esc(r.ejercicio) + '</b></div><span class="cd">' + esc(diasHasta(r.objetivo)) + '</span></div>';
+    }).join('');
+    if (recs.length) h += '<details class="recs-day"><summary>Tus ejercicios recomendados (' + recs.length + ')</summary><div class="exp-body">' +
+      recs.map(function (r) { return recItem(r, false); }).join('') + '</div></details>';
+    return h;
+  }
+
+  // ---------- Instalar ----------
+  function plataforma() {
+    var ua = navigator.userAgent || '';
+    if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+    if (/Android/i.test(ua)) return 'android';
+    if (/Mac/i.test(ua)) return 'mac';
+    return 'windows';
+  }
+  function htmlInstalar() {
+    var p = plataforma(), movil = p === 'ios' || p === 'android';
+    var pasosPC = '<ol class="steps"><li><b>Chrome o Edge (Windows y Mac):</b> abre la app y, en la barra de direcciones, pulsa el icono <b>Instalar</b> (una pantalla con una flecha). Si no aparece: menú <b>⋮</b> → <b>Enviar, guardar y compartir</b> → <b>Instalar página como aplicación</b> (en Edge: <b>Aplicaciones → Instalar este sitio como una aplicación</b>).</li>' +
+      '<li>Pulsa <b>Instalar</b>. Se crea un icono en el escritorio y en el menú Inicio (Windows) o en Aplicaciones/Launchpad (Mac).</li>' +
+      '<li><b>Safari en Mac:</b> menú <b>Archivo → Añadir al Dock</b>.</li>' +
+      '<li>Para tenerla a mano en Windows, haz clic derecho en el icono de la barra de tareas → <b>Anclar a la barra de tareas</b>.</li></ol>';
+    var pasosMovil = '<ol class="steps"><li><b>iPhone (Safari):</b> abre la app en Safari, pulsa <b>Compartir</b> (el cuadrado con la flecha hacia arriba) → <b>Añadir a pantalla de inicio</b> → <b>Añadir</b>.</li>' +
+      '<li><b>Android (Chrome):</b> menú <b>⋮</b> (arriba a la derecha) → <b>Añadir a pantalla de inicio</b> o <b>Instalar aplicación</b> → <b>Instalar</b>.</li>' +
+      '<li>Aparece el icono de ProgramApp con el resto de tus apps. Se abre a pantalla completa, sin barra del navegador.</li></ol>';
+    return (S.instalar ? '<button class="btn btn-primary" type="button" id="instalar-ya">Instalar ahora</button>' : '') +
+      '<details class="tut"' + (!movil ? ' open' : '') + '><summary>Ordenador · Windows / Mac</summary>' + pasosPC + '</details>' +
+      '<details class="tut"' + (movil ? ' open' : '') + '><summary>Móvil · Android / iPhone</summary>' + pasosMovil + '</details>';
+  }
+
+  // ---------- Coach ----------
+  function htmlCoach(d) {
+    return '<button class="btn" type="button" id="co-atletas">Buscar atleta · ficha</button>' +
+      '<button class="btn" type="button" id="co-solic">Solicitudes de acceso' + (d.solicitudesPendientes ? ' (' + d.solicitudesPendientes + ')' : '') + '</button>' +
+      '<button class="btn" type="button" id="co-avisos">Enviar o retirar avisos</button>';
+  }
+
+  /** Buscador de atletas con confirmación. alElegir(atleta) se llama tras confirmar. */
+  function buscadorAtletas(contenedorId, alElegir, opciones) {
+    var cont = document.getElementById(contenedorId);
+    if (!cont) return;
+    cont.innerHTML = '<input class="search" id="' + contenedorId + '-q" type="search" placeholder="Buscar por nombre o email" autocomplete="off">' +
+      '<div class="results" id="' + contenedorId + '-r"><div class="hint">Cargando atletas…</div></div>';
+    var lista = [];
+    function pintar() {
+      var q = norm(document.getElementById(contenedorId + '-q').value).trim();
+      var f = lista.filter(function (a) { return !q || norm(a.nombre).indexOf(q) >= 0 || norm(a.email).indexOf(q) >= 0; }).slice(0, 12);
+      document.getElementById(contenedorId + '-r').innerHTML = f.length ? f.map(function (a) {
+        return '<button type="button" class="res" data-e="' + esc(a.email) + '"><b>' + esc(a.nombre) + '</b><span>' + esc(a.email) + '</span>' +
+          '<span class="chip">' + esc(a.grupo || '—') + (a.activo === false ? ' · desactivado' : '') + '</span></button>';
+      }).join('') : '<div class="hint">Nadie coincide con la búsqueda.</div>';
+    }
+    api({ action: 'atletas' }).then(function (r) {
+      if (!r.ok) throw new Error(r.detalle || r.error);
+      lista = r.atletas.filter(function (a) { return !opciones || !opciones.soloActivos || a.activo; })
+        .sort(function (a, b) { return a.nombre.localeCompare(b.nombre); });
+      pintar();
+    }).catch(function (e) { document.getElementById(contenedorId + '-r').innerHTML = '<div class="err">' + esc(mensajeError(e.message)) + '</div>'; });
+    document.getElementById(contenedorId + '-q').oninput = pintar;
+    cont.onclick = function (ev) {
+      var b = ev.target.closest('.res');
+      if (b) {
+        var a = lista.filter(function (x) { return x.email === b.dataset.e; })[0];
+        document.getElementById(contenedorId + '-r').innerHTML = '<div class="confirm"><div class="part-lbl">¿Es este atleta?</div>' +
+          '<div class="confirm-name">' + esc(a.nombre) + '</div><div>' + esc(a.email) + '</div><div class="hint">Grupo: ' + esc(a.grupo || '—') + ' · ' + esc(a.rol) + (a.activo === false ? ' · desactivado' : '') + '</div>' +
+          '<div class="two-btn"><button type="button" class="btn" data-cancelar>Cancelar</button><button type="button" class="btn btn-primary" data-confirmar>Confirmar</button></div></div>';
+        cont._elegido = a; return;
+      }
+      if (ev.target.closest('[data-cancelar]')) { pintar(); return; }
+      if (ev.target.closest('[data-confirmar]')) alElegir(cont._elegido);
+    };
+  }
+
+  function abrirBuscarAtleta() {
+    abrirHoja('<div class="row"><h2>Buscar atleta</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div><div id="ba"></div>');
+    buscadorAtletas('ba', function (a) { cerrarHoja(); abrirFicha(a.email); });
+    setTimeout(function () { var q = document.getElementById('ba-q'); if (q) q.focus(); }, 50);
+  }
+
+  function abrirSolicitudes() {
+    abrirHoja('<div class="row"><h2>Solicitudes</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div><div id="sol"><div class="hint">Cargando…</div></div>');
+    api({ action: 'solicitudes' }).then(function (r) { if (r.ok) pintarSolicitudes(r.solicitudes); });
+  }
+  function pintarSolicitudes(lista) {
+    var el = document.getElementById('sol'); if (!el) return;
+    if (S.data) S.data.solicitudesPendientes = lista.length;
+    el.innerHTML = lista.length ? lista.map(function (s) {
+      return '<div class="sol"><div class="confirm-name">' + esc(s.nombre) + '</div><div>' + esc(s.email) + '</div>' +
+        '<div class="hint">' + esc(s.fecha) + (s.existe ? ' · ya existe en ATLETAS (' + esc(s.existe) + ')' : '') + '</div>' + (s.mensaje ? '<p>' + esc(s.mensaje) + '</p>' : '') +
+        '<label class="lbl-s">Grupo si se aprueba</label><select data-grupo-de="' + esc(s.email) + '"><option>Box</option><option>Individual</option><option>Otro</option><option>Coach</option></select>' +
+        '<div class="two-btn"><button type="button" class="btn" data-resolver="0" data-email="' + esc(s.email) + '">Rechazar</button>' +
+        '<button type="button" class="btn btn-primary" data-resolver="1" data-email="' + esc(s.email) + '">Aprobar</button></div></div>';
+    }).join('') : '<div class="hint">No hay solicitudes pendientes.</div>';
+  }
+
+  // ---------- Ficha del atleta (coach) ----------
+  function abrirFicha(email) {
+    S.vista = 'ficha'; S.ficha = { cargando: true, email: email }; render();
+    api({ action: 'ficha', email: email }).then(function (r) {
+      if (!r.ok) throw new Error(r.detalle || r.error);
+      S.ficha = r.ficha; S.ficha.email = email; render();
+    }).catch(function (e) { S.ficha = { error: mensajeError(e.message), email: email }; render(); });
+  }
+
+  function renderFicha() {
+    var f = S.ficha || {};
+    var html = cabeceraVista(f.atleta ? f.atleta.nombre : 'Atleta', 'Ajustes');
+    if (f.cargando) html += '<div class="empty">Cargando ficha…</div>';
+    else if (f.error) html += '<div class="empty">' + esc(f.error) + '</div>';
+    else {
+      var a = f.atleta;
+      html += '<section class="me"><div class="who big">' + esc(a.nombre.charAt(0).toUpperCase()) + '</div><div><b>' + esc(a.nombre) + '</b>' +
+        '<div class="hint">' + esc(a.email) + '</div><div class="hint">Grupo ' + esc(a.grupo || '—') + ' · ' + esc(a.rol) + (a.activo ? '' : ' · <b>desactivado</b>') + '</div></div></section>';
+      html += '<div class="two-btn"><button class="btn btn-primary" type="button" id="fi-rec">Nueva recomendación</button><button class="btn" type="button" id="fi-av">Enviar aviso</button></div>';
+      // RPE
+      html += seccion('fi-rpe', 'RPE · últimas semanas', f.semanas.length ? '<table class="tbl"><thead><tr><th>Semana</th><th>Semana</th><th>Sesiones</th><th>Bloques</th></tr></thead><tbody>' +
+        f.semanas.map(function (s) {
+          return '<tr><td>' + fechaCorta(s.lunes) + '</td><td>' + rpeTd(s.semana) + '</td><td>' + rpeTd(s.sesionesMedia) + (s.sesiones.length ? ' <span class="hint">(' + s.sesiones.length + ')</span>' : '') + '</td><td>' + rpeTd(s.bloquesMedia) + '</td></tr>' +
+            (s.comentario ? '<tr class="sub"><td colspan="4">“' + esc(s.comentario) + '”</td></tr>' : '');
+        }).join('') + '</tbody></table>' : '<div class="hint">Todavía no ha valorado ninguna sesión.</div>');
+      html += seccion('fi-recs', 'Recomendaciones', htmlRecsAtleta(f.recomendaciones, true));
+      var rm = f.marcas1rm || {};
+      var otras = agruparMarcas(f.marcas.filter(function (x) { return LEVANTAMIENTOS.indexOf(x.marca) < 0; }));
+      html += seccion('fi-marcas', 'Marcas', '<div class="kv">' + LEVANTAMIENTOS.map(function (l) { return '<span>' + cap(l) + '</span><b>' + (rm[l] ? rm[l] + ' kg' : '—') + '</b>'; }).join('') + '</div>' +
+        (Object.keys(otras).length ? '<div class="part-lbl">Otras</div><div class="kv">' + Object.keys(otras).map(function (n) { return '<span>' + esc(cap(n)) + '</span><b>' + esc(fmtMarca(otras[n].mejor)) + '</b>'; }).join('') + '</div>' : ''));
+    }
+    $app.innerHTML = html;
+    document.getElementById('atras').onclick = function () { S.vista = 'ajustes'; S._abrir = 's-coach'; render(); };
+    var br = document.getElementById('fi-rec'); if (br) br.onclick = abrirNuevaRec;
+    var ba = document.getElementById('fi-av'); if (ba) ba.onclick = function () { abrirGestionAvisos(null, S.ficha.atleta); };
+    var ab = S._abrir; S._abrir = null; if (ab && document.getElementById(ab)) document.getElementById(ab).open = true;
+  }
+  function rpeTd(v) { return v == null || v === '' ? '<span class="hint">—</span>' : '<b style="color:' + rpeColor(String(Math.round(v))) + '">' + esc(v) + '</b>'; }
+
+  function abrirNuevaRec() {
+    var a = S.ficha.atleta, hoy = S.data ? S.data.hoy : '';
+    var nombresDic = (listaVideos || []).map(function (v) { return v.nombre; });
+    abrirHoja('<div class="row"><h2>Nueva recomendación</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      '<div class="hint">Para <b>' + esc(a.nombre) + '</b> · ' + esc(a.email) + '</div>' +
+      '<form id="recf" class="avf"><datalist id="rec-dic">' + nombresDic.map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>' +
+      '<div class="two"><div><label for="rc-tipo">Tipo</label><select id="rc-tipo"><option>Movilidad</option><option>Activación</option><option>Fuerza</option><option>Estiramiento</option><option>Competición</option></select></div>' +
+      '<div><label for="rc-zona">Zona</label><select id="rc-zona"><option>Hombro</option><option>Codo</option><option>Muñeca</option><option>Lumbar</option><option>Dorsal</option><option>Cadera</option><option>Rodilla</option><option>Tobillo</option><option selected>General</option><option>Otro</option></select></div></div>' +
+      '<label for="rc-ej">Ejercicio o trabajo</label><input id="rc-ej" list="rec-dic" maxlength="120" required placeholder="Ej. Banded external rotation">' +
+      '<label for="rc-dosis">Dosis</label><input id="rc-dosis" maxlength="160" placeholder="Ej. 3×15 por brazo, antes de entrenar">' +
+      '<div class="two"><div><label for="rc-desde">Desde</label><input id="rc-desde" type="date" value="' + hoy + '"></div><div><label for="rc-fin">Hasta (opcional)</label><input id="rc-fin" type="date"></div></div>' +
+      '<div id="rc-obj-w" hidden><label for="rc-obj">Fecha de la competición</label><input id="rc-obj" type="date"></div>' +
+      '<label for="rc-video">Vídeo (opcional)</label><input id="rc-video" type="url" placeholder="Enlace de YouTube · si el ejercicio está en el diccionario no hace falta">' +
+      '<label for="rc-notas">Motivo o indicaciones</label><textarea id="rc-notas" rows="2" maxlength="400" placeholder="Ej. molestia en el jerk"></textarea>' +
+      '<button class="btn btn-primary" type="submit" id="rc-ok">Guardar recomendación</button></form>');
+    var tipo = document.getElementById('rc-tipo');
+    tipo.onchange = function () { document.getElementById('rc-obj-w').hidden = tipo.value !== 'Competición'; };
+    document.getElementById('recf').onsubmit = function (ev) {
+      ev.preventDefault();
+      var b = document.getElementById('rc-ok'); b.disabled = true; b.textContent = 'Guardando…';
+      api({ action: 'rec_crear', email: a.email, rec: { tipo: tipo.value, zona: val('rc-zona'), ejercicio: val('rc-ej'), dosis: val('rc-dosis'),
+        desde: val('rc-desde'), fin: val('rc-fin'), objetivo: tipo.value === 'Competición' ? val('rc-obj') : '', video: val('rc-video'), notas: val('rc-notas') } })
+        .then(function (r) {
+          if (!r.ok) throw new Error(r.detalle || r.error);
+          cerrarHoja(); S.ficha = r.ficha; S.ficha.email = a.email; S._abrir = 'fi-recs'; render(); toast('Recomendación guardada');
+        }).catch(function (e) { b.disabled = false; b.textContent = 'Guardar recomendación'; toast(mensajeError(e.message)); });
+    };
+  }
+
+  function abrirVideoUrl(nombre, url) {
+    var id = idVideo(url);
+    abrirHoja('<div class="row"><h2>' + esc(nombre) + '</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      (id ? '<div class="player"><iframe src="https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&playsinline=1&rel=0&modestbranding=1" title="' + esc(nombre) + '" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>' : '') +
+      '<a class="btn" href="' + esc(url) + '" target="_blank" rel="noopener">Abrir en YouTube</a>');
+  }
+
+  // ---------- Pedir acceso ----------
+  function pantallaSolicitud(email, estado) {
+    var cuerpo;
+    if (estado === 'Pendiente') cuerpo = '<p>Tu solicitud de acceso está <b>pendiente</b>. Gabi la revisará pronto; cuando la apruebe, vuelve a abrir la app.</p>';
+    else if (estado === 'Rechazada') cuerpo = '<p>Tu solicitud de acceso no ha sido aprobada. Si crees que es un error, habla con Gabi.</p>';
+    else cuerpo = '<p>Este correo todavía no tiene acceso. Pídelo aquí: Gabi verá tu nombre y tu correo y lo aprobará.</p>' +
+      '<form id="solf" class="field"><label for="sol-n">Nombre y apellidos</label><input id="sol-n" required minlength="3" maxlength="80" autocomplete="name">' +
+      '<label for="sol-m">Mensaje (opcional)</label><input id="sol-m" maxlength="300" placeholder="Ej. Entreno en el box por las tardes">' +
+      '<button class="btn btn-primary" type="submit" id="sol-ok">Pedir acceso</button></form>';
+    $app.innerHTML = '<section class="login"><div class="brand">ProgramApp</div><div class="hint">Has entrado como <b>' + esc(email) + '</b></div>' + cuerpo +
+      '<button class="btn" id="salir" type="button">Entrar con otra cuenta</button></section>';
+    document.getElementById('salir').onclick = function () { auth.signOut(); };
+    var f = document.getElementById('solf');
+    if (f) f.onsubmit = function (ev) {
+      ev.preventDefault();
+      var b = document.getElementById('sol-ok'); b.disabled = true; b.textContent = 'Enviando…';
+      api({ action: 'solicitar', nombre: val('sol-n'), mensaje: val('sol-m') }).then(function (r) {
+        if (r.solicitud === 'Pendiente') pantallaSolicitud(email, 'Pendiente');
+        else throw new Error(r.detalle || r.error);
+      }).catch(function (e) { b.disabled = false; b.textContent = 'Pedir acceso'; toast(mensajeError(e.message)); });
+    };
+  }
+
   // ---------- hojas ----------
   function abrirHoja(html) {
     $scrim.innerHTML = '<div class="sheet" role="dialog" aria-modal="true">' + html + '</div>';
@@ -502,35 +917,7 @@
       '<a class="btn" href="' + esc(v.url) + '" target="_blank" rel="noopener">Abrir en YouTube</a>');
   }
 
-  function abrirPerfil() {
-    var u = S.user, m = u.marcas || {};
-    abrirHoja('<div class="row"><h2>' + esc(u.nombre) + '</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
-      '<div class="hint">' + esc(u.email) + '</div>' +
-      '<div><div class="part-lbl">Mis marcas (1RM, kg)</div><div class="hint">Con tus marcas, los porcentajes de Gabi se convierten en kilos.</div></div>' +
-      '<form id="marcasf"><div class="marks">' + LEVANTAMIENTOS.map(function (l) {
-        var id = 'rm-' + l.replace(/\s/g, '');
-        return '<label for="' + id + '">' + cap(l) + '<input id="' + id + '" data-lev="' + l + '" type="number" inputmode="decimal" min="0" step="0.5" value="' + (m[l] || '') + '" placeholder="kg"></label>';
-      }).join('') + '</div><div style="height:12px"></div><button class="btn btn-primary" type="submit" id="gm">Guardar marcas</button></form>' +
-      '<div id="gmst" class="hint" role="status"></div>' +
-      (S.data && S.data.staff ? '<div><div class="part-lbl">Coach</div><div class="hint">Mensajes que verán los atletas al abrir un día.</div></div>' +
-        '<button class="btn" type="button" id="gestav">Enviar o retirar avisos</button>' : '') +
-      '<button class="btn" type="button" id="logout">Cerrar sesión</button>');
-    var ga = document.getElementById('gestav'); if (ga) ga.onclick = function () { abrirGestionAvisos(null); };
-    document.getElementById('marcasf').onsubmit = function (ev) {
-      ev.preventDefault();
-      var nuevas = {};
-      $scrim.querySelectorAll('input[data-lev]').forEach(function (inp) { var n = parseFloat(inp.value); nuevas[inp.dataset.lev] = n > 0 ? n : ''; });
-      var btn = document.getElementById('gm'), st = document.getElementById('gmst');
-      btn.disabled = true; btn.textContent = 'Guardando…';
-      api({ action: 'marcas', marcas: nuevas }).then(function (r) {
-        if (!r.ok) throw new Error(r.error);
-        var limpio = {}; Object.keys(nuevas).forEach(function (k) { if (nuevas[k]) limpio[k] = nuevas[k]; });
-        S.user.marcas = limpio; render();
-        btn.disabled = false; btn.textContent = 'Guardar marcas'; st.textContent = 'Marcas guardadas.';
-      }).catch(function () { btn.disabled = false; btn.textContent = 'Guardar marcas'; st.textContent = 'No se pudieron guardar. Revisa la conexión.'; });
-    };
-    document.getElementById('logout').onclick = function () { cerrarHoja(); auth.signOut(); };
-  }
+  function abrirPerfil() { abrirAjustes(); }
 
   // ---------- eventos ----------
   document.addEventListener('click', function (e) {
@@ -558,6 +945,44 @@
     if (n) {
       var a = ((S.data.avisos || {})[S.data.dias[S.dia].iso] || []).filter(function (x) { return x.id === n.dataset.aviso; })[0];
       if (a) mostrarAviso(a, S.data.dias[S.dia].iso); return;
+    }
+    var tm = e.target.closest('[data-tema]');
+    if (tm) { guardar('pa-tema', tm.dataset.tema); aplicarTema(tm.dataset.tema); S._abrir = 's-tema'; render(); return; }
+    if (e.target.closest('#instalar-ya') && S.instalar) { S.instalar.prompt(); S.instalar.userChoice.then(function () { S.instalar = null; S._abrir = 's-instalar'; render(); }); return; }
+    if (e.target.closest('#co-atletas')) { abrirBuscarAtleta(); return; }
+    if (e.target.closest('#co-solic')) { abrirSolicitudes(); return; }
+    if (e.target.closest('#co-avisos')) { abrirGestionAvisos(null); return; }
+    var vu = e.target.closest('[data-video-url]');
+    if (vu) { abrirVideoUrl(vu.dataset.videoNombre, vu.dataset.videoUrl); return; }
+    var rs = e.target.closest('[data-resolver]');
+    if (rs) {
+      var aprobar = rs.dataset.resolver === '1';
+      if (rs.dataset.confirmar !== '1') { rs.dataset.confirmar = '1'; rs.textContent = aprobar ? '¿Aprobar?' : '¿Rechazar?'; return; }
+      rs.disabled = true;
+      var gsel = document.querySelector('[data-grupo-de="' + rs.dataset.email + '"]');
+      api({ action: 'solicitud_resolver', email: rs.dataset.email, aprobar: aprobar, grupo: gsel ? gsel.value : 'Box' }).then(function (r) {
+        if (!r.ok) throw new Error(r.detalle || r.error);
+        toast(aprobar ? 'Aprobada: ya puede entrar' : 'Solicitud rechazada'); pintarSolicitudes(r.solicitudes);
+      }).catch(function (er) { rs.disabled = false; toast(mensajeError(er.message)); });
+      return;
+    }
+    var bm = e.target.closest('[data-borrar-marca]');
+    if (bm) {
+      if (bm.dataset.confirmar !== '1') { bm.dataset.confirmar = '1'; bm.textContent = '¿Borrar?'; return; }
+      api({ action: 'marca_borrar', marca: JSON.parse(bm.dataset.borrarMarca) }).then(function (r) {
+        if (!r.ok) throw new Error(r.detalle || r.error);
+        S.data.misMarcas = r.marcas; S._abrir = 's-marcas'; render(); toast('Marca borrada');
+      }).catch(function (er) { toast(mensajeError(er.message)); });
+      return;
+    }
+    var fz = e.target.closest('[data-finalizar]');
+    if (fz) {
+      if (fz.dataset.confirmar !== '1') { fz.dataset.confirmar = '1'; fz.textContent = '¿Finalizar?'; return; }
+      api({ action: 'rec_finalizar', id: fz.dataset.finalizar, email: S.ficha.email }).then(function (r) {
+        if (!r.ok) throw new Error(r.detalle || r.error);
+        S.ficha = r.ficha; S.ficha.email = r.ficha.atleta.email; S._abrir = 'fi-recs'; render(); toast('Pasada al historial');
+      }).catch(function (er) { toast(mensajeError(er.message)); });
+      return;
     }
     var rt = e.target.closest('[data-retirar]');
     if (rt) {
