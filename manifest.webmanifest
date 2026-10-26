@@ -1,6 +1,6 @@
 {
-  "name": "ProgramApp",
-  "short_name": "ProgramApp",
+  "name": "Fabrik Program",
+  "short_name": "Fabrik",
   "description": "La programación semanal de Gabi.",
   "lang": "es",
   "start_url": "./",

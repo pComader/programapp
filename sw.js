@@ -1,5 +1,5 @@
 // Guarda la "carcasa" de la app para que abra al instante. La programación siempre se pide al servidor.
-var VERSION = 'pa-v6';
+var VERSION = 'pa-v7';
 var ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png'];
 self.addEventListener('install', function (e) { e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(ARCHIVOS); })); self.skipWaiting(); });
 self.addEventListener('activate', function (e) {
