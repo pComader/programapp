@@ -523,8 +523,8 @@
   function mensajeError(m) {
     return { dia_futuro: 'Solo se pueden valorar el día de hoy y los anteriores.', fuera_de_plazo: 'La valoración de la semana se abre el sábado a las 12:00 y cierra el martes a las 23:59.',
       solo_staff: 'Solo Coach y Admin pueden hacer esto.', falta_nombre: 'Escribe tu nombre y apellidos.', falta_marca: 'Pon un nombre a la marca.',
-      valor_no_valido: 'Revisa el valor (tiempo como mm:ss, por ejemplo 4:35).', tipo_no_valido: 'Elige un tipo válido.', falta_ejercicio: 'Escribe el ejercicio.',
-      video_no_valido: 'El vídeo tiene que ser un enlace.', tiempo_no_valido: 'Escribe el tiempo como mm:ss (ej. 12:45).', falta_bloque: 'Elige el bloque.',
+      valor_no_valido: 'Revisa el valor (el tiempo en minutos y segundos).', tipo_no_valido: 'Elige un tipo válido.', falta_ejercicio: 'Escribe el ejercicio.',
+      video_no_valido: 'El vídeo tiene que ser un enlace.', tiempo_no_valido: 'Revisa el tiempo: minutos y segundos (los segundos de 0 a 59).', falta_bloque: 'Elige el bloque.',
       nota_vacia: 'Escribe la nota.', evento_repetido: 'Ya hay un evento activo con ese nombre.', evento_no_encontrado: 'Ese evento no existe.', no_encontrado: 'Ya no existe.',
       faltan_campos: 'Rellena todos los campos.', fechas_no_validas: 'La fecha de fin es anterior a la de inicio.', marca_no_valida: 'Marca no válida.', atleta_no_encontrado: 'No encuentro a ese atleta.', solicitud_no_encontrada: 'Esa solicitud ya estaba resuelta.', fecha_no_valida: 'Revisa la fecha.', aviso_vacio: 'Escribe un título o un mensaje.' }[m] || 'No se pudo guardar. Revisa la conexión.';
   }
@@ -615,7 +615,7 @@
       return '<button type="button" data-tema="' + k + '" aria-pressed="' + (tema === k) + '">' + TEMAS[k] + '</button>'; }).join('') + '</div>' +
       '<div class="hint">Automático sigue el modo claro u oscuro de tu móvil u ordenador.</div>', '', '◐');
     html += seccion('s-instalar', 'Instalar la app', htmlInstalar(), '', '↓');
-    html += '<button class="btn" type="button" id="logout">Cerrar sesión</button>';
+    html += '<button class="btn" type="button" id="logout">Cerrar sesión</button><div class="hint" style="text-align:center">Fabrik Program · ' + esc(WEB_VERSION) + '</div>';
     $app.innerHTML = html;
     document.getElementById('atras').onclick = volverSemana;
     document.getElementById('logout').onclick = function () { S.vista = null; auth.signOut(); };
@@ -1063,6 +1063,7 @@
       '<div class="three"><div><label for="pr-t">Tipo</label><select id="pr-t"><option>Kilos</option><option>Tiempo</option><option>Reps</option><option>Calorías</option><option>Distancia</option></select></div>' +
       '<div><label for="pr-v">Valor</label><input id="pr-v" required inputmode="decimal" placeholder="kg · ej. 102.5"></div>' +
       '<div><label for="pr-f">Fecha</label><input id="pr-f" type="date" value="' + (d.hoy || '') + '" max="' + (d.hoy || '') + '"></div></div>' +
+      '<div id="pr-tw" hidden><label for="pr-tt-m">Tiempo</label>' + campoTiempo('pr-tt', '') + '</div>' +
       '<input id="pr-nt" maxlength="200" placeholder="Nota (opcional)">' +
       '<button class="btn" type="submit" id="pr-ok">Añadir marca</button></form>';
   }
@@ -1076,7 +1077,7 @@
     });
     return g;
   }
-  function valorNum(x) { if (x.tipo === 'Tiempo') { var p = String(x.valor).split(':'); return Number(p[0]) * 60 + Number(p[1] || 0); } return parseFloat(x.valor); }
+  function valorNum(x) { if (x.tipo === 'Tiempo') { var p = String(x.valor).split(':').map(Number), sg = 0; p.forEach(function (n) { sg = sg * 60 + (n || 0); }); return p.length === 1 ? sg * 60 : sg; } return parseFloat(String(x.valor).replace(',', '.')); }
   function mejorQue(a, b) { return a.tipo === 'Tiempo' ? valorNum(a) < valorNum(b) : valorNum(a) > valorNum(b); }
   function fmtMarca(x) { if (!x) return ''; var u = { Kilos: ' kg', Calorías: ' cal', Reps: ' reps', Tiempo: '', Distancia: ' m' }[x.tipo] || ''; return x.valor + u; }
   var PH_MARCA = { Kilos: 'kg · ej. 102.5', Tiempo: 'mm:ss · ej. 3:45 (o 1:05:30)', Reps: 'reps · ej. 50', 'Calorías': 'cal · ej. 120', Distancia: 'metros · ej. 400' };
@@ -1104,14 +1105,21 @@
       }).catch(function (e) { btn.disabled = false; btn.textContent = 'Guardar 1RM'; toast(mensajeError(e.message)); });
     };
     var t = document.getElementById('pr-t'), v = document.getElementById('pr-v');
-    if (t) t.onchange = function () { v.placeholder = PH_MARCA[t.value]; v.inputMode = t.value === 'Tiempo' ? 'text' : 'decimal'; };
+    if (t) t.onchange = function () {
+      var esT = t.value === 'Tiempo';
+      v.placeholder = esT ? '' : PH_MARCA[t.value]; v.required = !esT; v.parentNode.hidden = esT;
+      document.getElementById('pr-tw').hidden = !esT;
+    };
+    enlazarTiempo('pr-tt');
     var pn = document.getElementById('pr-n');
     if (pn) pn.onchange = function () { var tp = CATALOGO[norm(pn.value).trim()]; if (tp && t) { t.value = tp; t.onchange(); } };
     var pf = document.getElementById('prf');
     if (pf) pf.onsubmit = function (ev) {
       ev.preventDefault();
+      var valor = val('pr-v');
+      if (t.value === 'Tiempo') { valor = leerTiempo('pr-tt'); if (!valor) { toast(valor === null ? 'Revisa el tiempo: los segundos van de 0 a 59.' : 'Pon el tiempo (minutos y segundos).'); return; } }
       var b = document.getElementById('pr-ok'); b.disabled = true; b.textContent = 'Guardando…';
-      api({ action: 'marca', marca: { marca: val('pr-n'), tipo: t.value, valor: val('pr-v'), fecha: val('pr-f'), notas: val('pr-nt') } }).then(function (r) {
+      api({ action: 'marca', marca: { marca: val('pr-n'), tipo: t.value, valor: valor, fecha: val('pr-f'), notas: val('pr-nt') } }).then(function (r) {
         if (!r.ok) throw new Error(r.detalle || r.error);
         S.data.misMarcas = r.marcas; toast('Marca añadida'); S._abrir = 's-marcas'; render();
       }).catch(function (e) { b.disabled = false; b.textContent = 'Añadir marca'; toast(mensajeError(e.message)); });
@@ -1126,6 +1134,83 @@
     }).catch(function () { S._abrir = abrir; render(); });
   }
   // ---------- resultados de metcon ----------
+  // ---------- tiempos: huecos h · min · s (y texto libre con : , ; ' " . o espacios) ----------
+  /** "12:45", "12,45", "12'45\"", "1.05.30", "1245" → {h,m,s}. null si no se entiende o los segundos pasan de 59. */
+  function partesTiempo(txt) {
+    var t = String(txt == null ? '' : txt).trim();
+    if (!t) return null;
+    var p = t.split(/[^0-9]+/).filter(function (x) { return x !== ''; }).map(Number);
+    if (!p.length) return null;
+    if (p.length === 1) {
+      var d = String(p[0]);
+      if (d.length <= 2) p = [p[0], 0];                                   // "12" → 12 min
+      else if (d.length <= 4) p = [Number(d.slice(0, -2)), Number(d.slice(-2))];   // "1245" → 12:45
+      else p = [Number(d.slice(0, -4)), Number(d.slice(-4, -2)), Number(d.slice(-2))]; // "10530" → 1:05:30
+    }
+    if (p.length > 3) return null;
+    var h = p.length === 3 ? p[0] : 0, m = p[p.length - 2], s = p[p.length - 1];
+    if (s > 59 || (p.length === 3 && m > 59)) return null;
+    h += Math.floor(m / 60); m = m % 60;
+    if (!h && !m && !s) return null;
+    return { h: h, m: m, s: s };
+  }
+  function textoTiempo(o) {
+    if (!o) return '';
+    var dd = function (n) { return (n < 10 ? '0' : '') + n; };
+    return o.h ? o.h + ':' + dd(o.m) + ':' + dd(o.s) : o.m + ':' + dd(o.s);
+  }
+  function campoTiempo(id, valor) {
+    var o = partesTiempo(valor) || {};
+    var caja = function (k, lbl, ph, max, v) {
+      return '<label class="tz"><input id="' + id + '-' + k + '" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-max="' + max + '" placeholder="' + ph + '" value="' + (v != null && (v || k !== 'h') ? v : '') + '" aria-label="' + lbl + '"><span>' + lbl + '</span></label>';
+    };
+    return '<div class="tiempo" id="' + id + '" role="group" aria-label="Tiempo">' +
+      caja('h', 'horas', '0', 2, o.h) + '<b aria-hidden="true">:</b>' + caja('m', 'min', '12', 3, o.m != null ? o.m : null) + '<b aria-hidden="true">:</b>' +
+      caja('s', 'seg', '45', 2, o.s != null ? (o.s < 10 ? '0' + o.s : o.s) : null) + '</div>';
+  }
+  /** Lee los huecos. '' si están vacíos; null si hay un error (y lo marca en rojo). */
+  function leerTiempo(id) {
+    var g = function (k) { var e = document.getElementById(id + '-' + k); return e ? e.value.replace(/\D/g, '') : ''; };
+    var h = g('h'), m = g('m'), s = g('s');
+    var w = document.getElementById(id);
+    if (!h && !m && !s) return '';
+    var o = partesTiempo(h ? h + ':' + (m || 0) + ':' + (s || 0) : (m || 0) + ':' + (s || 0));
+    if (w) w.classList.toggle('mal', !o);
+    return o ? textoTiempo(o) : null;
+  }
+  /**
+   * Comportamiento de los huecos:
+   *  · "12:45" (o 12,45 · 12'45 · 12;45 · 12.45) escrito o pegado en cualquier hueco → se reparte solo.
+   *  · Un número + separador ("12,") → se queda el número y salta al hueco siguiente.
+   *  · Solo cifras; al llenar 2 cifras en horas o minutos, salta al siguiente.
+   */
+  function enlazarTiempo(id) {
+    var w = document.getElementById(id);
+    if (!w) return;
+    var cajas = ['h', 'm', 's'].map(function (k) { return document.getElementById(id + '-' + k); });
+    var MAX = [2, 3, 2];
+    cajas.forEach(function (c, i) {
+      c.oninput = function () {
+        var v = c.value;
+        w.classList.remove('mal');
+        if (/[^0-9]/.test(v)) {
+          var nums = v.split(/[^0-9]+/).filter(function (x) { return x !== ''; });
+          if (nums.length >= 2) {
+            var o = partesTiempo(v);
+            if (o) { cajas[0].value = o.h ? o.h : ''; cajas[1].value = o.m; cajas[2].value = (o.s < 10 ? '0' : '') + o.s; cajas[2].focus(); return; }
+          }
+          c.value = (nums[0] || '').slice(0, MAX[i]);
+          if (nums.length === 1 && cajas[i + 1]) { cajas[i + 1].focus(); try { cajas[i + 1].select(); } catch (e) {} }
+          return;
+        }
+        if (v.length > MAX[i]) c.value = v = v.slice(0, MAX[i]);
+        if (i < 2 && v.length >= 2) { cajas[i + 1].focus(); try { cajas[i + 1].select(); } catch (e) {} }
+      };
+      c.onfocus = function () { try { c.select(); } catch (e) {} };
+      c.onkeydown = function (e) { if (e.key === 'Backspace' && !c.value && i > 0) cajas[i - 1].focus(); };
+    });
+  }
+
   var TIPOS_RES = [['Tiempo', 'For time'], ['AMRAP', 'AMRAP'], ['Máximo', 'Máx. reps/cal/m'], ['Carga', 'Carga (kg)'], ['Máquina', 'Cal / km']];
 
   /** Tipo de resultado más probable según el texto del WOD (el atleta puede cambiarlo). */
@@ -1170,7 +1255,7 @@
       }).join('') + '</div>';
     };
     var campos = {
-      'Tiempo': '<div class="rs-row"><div><label for="rs-t">Tiempo</label><input id="rs-t" inputmode="numeric" placeholder="mm:ss · ej. 12:45" value="' + esc(v.tiempo || '') + '"></div></div>' +
+      'Tiempo': '<div class="rs-row"><div><label for="rs-t-m">Tiempo</label>' + campoTiempo('rs-t', v.tiempo) + '<div class="hint">Minutos y segundos. Las horas solo si pasas de 60 min.</div></div></div>' +
         '<label class="chk"><input type="checkbox" id="rs-cap"' + (v.cap ? ' checked' : '') + '> No terminé (time cap)</label>' +
         '<div id="rs-capw"' + (v.cap ? '' : ' hidden') + '><label for="rs-cr">Repeticiones hechas</label><input id="rs-cr" inputmode="numeric" placeholder="reps · ej. 152" value="' + esc(v.reps || '') + '"></div>',
       'AMRAP': '<div class="rs-row two"><div><label for="rs-ro">Rondas</label><input id="rs-ro" inputmode="numeric" placeholder="ej. 6" value="' + esc(v.rondas || '') + '"></div>' +
@@ -1195,8 +1280,10 @@
     var estado = { tipo: tipo, nivel: nivel, version: version };
     function enlazarCampos() {
       var cap = document.getElementById('rs-cap');
-      if (cap) cap.onchange = function () { document.getElementById('rs-capw').hidden = !cap.checked; document.getElementById('rs-t').disabled = cap.checked; };
-      if (cap && cap.checked) document.getElementById('rs-t').disabled = true;
+      var bloquear = function (si) { ['h', 'm', 's'].forEach(function (k) { var e = document.getElementById('rs-t-' + k); if (e) e.disabled = si; }); var w = document.getElementById('rs-t'); if (w) w.classList.toggle('off', si); };
+      if (cap) cap.onchange = function () { document.getElementById('rs-capw').hidden = !cap.checked; bloquear(cap.checked); };
+      if (cap && cap.checked) bloquear(true);
+      enlazarTiempo('rs-t');
     }
     enlazarCampos();
     $scrim.querySelectorAll('.seg').forEach(function (g) {
@@ -1210,7 +1297,10 @@
     });
     document.getElementById('rs-ok').onclick = function () {
       var cuerpo = { action: 'resultado', dia: iso, bloque: n, titulo: b.titulo, version: estado.version, tipo: estado.tipo, nivel: estado.nivel, adaptacion: val('rs-ad') };
-      if (estado.tipo === 'Tiempo') { var c = document.getElementById('rs-cap').checked; cuerpo.cap = c; cuerpo.tiempo = val('rs-t'); cuerpo.reps = val('rs-cr'); }
+      if (estado.tipo === 'Tiempo') {
+        var c = document.getElementById('rs-cap').checked; cuerpo.cap = c; cuerpo.reps = val('rs-cr');
+        if (!c) { var tt = leerTiempo('rs-t'); if (!tt) { toast(tt === null ? 'Revisa el tiempo: los segundos van de 0 a 59.' : 'Pon tu tiempo (minutos y segundos).'); return; } cuerpo.tiempo = tt; }
+      }
       if (estado.tipo === 'AMRAP') { cuerpo.rondas = val('rs-ro'); cuerpo.reps = val('rs-re') || 0; }
       if (estado.tipo === 'Máximo') { cuerpo.valor = val('rs-mv'); cuerpo.unidad = val('rs-mu'); }
       if (estado.tipo === 'Carga') cuerpo.kg = val('rs-kg');
@@ -1345,7 +1435,7 @@
     $scrim.hidden = false;
     var f = $scrim.querySelector('input,button,select'); if (f) f.focus();
   }
-  function cerrarHoja() { $scrim.hidden = true; $scrim.innerHTML = ''; }
+  function cerrarHoja() { $scrim.hidden = true; $scrim.innerHTML = ''; if (S.recargarAlCerrar) { S.recargarAlCerrar = false; setTimeout(recargarApp, 50); } }
   $scrim.addEventListener('click', function (e) { if (e.target === $scrim || e.target.closest('[data-close]')) cerrarHoja(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$scrim.hidden) cerrarHoja(); });
 
@@ -1468,9 +1558,28 @@
       }).catch(falloApi());
     }
   });
-  document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && S.user && Date.now() - S.ultimaCarga > 5 * 60 * 1000 && !S.cargando) cargar(S.data && S.data.semana);
-  });
+  // ---------- siempre la última versión ----------
+  // Tras 5 minutos sin usarla, el primer toque (o volver a la pestaña) busca versión nueva de la app
+  // y recarga los datos. Si hay versión nueva, la página se recarga sola una vez (con el service worker
+  // «primero red», una recarga basta para ver la última versión).
+  var WEB_VERSION = 'v4 · web 9';
+  var ultimaActividad = Date.now(), habiaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller), recargando = false;
+  function recargarApp() {
+    if (recargando) return;
+    if (!$scrim.hidden) { S.recargarAlCerrar = true; return; }   // no cortar a alguien que está escribiendo
+    recargando = true; location.reload();
+  }
+  function alVolver() {
+    var parado = Date.now() - ultimaActividad > 5 * 60 * 1000;
+    ultimaActividad = Date.now();
+    if (!parado) return;
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistration)
+      navigator.serviceWorker.getRegistration().then(function (r) { if (r) r.update().catch(function () {}); });
+    if (S.user && !S.cargando) cargar(S.data && S.data.semana);
+  }
+  ['pointerdown', 'keydown'].forEach(function (t) { document.addEventListener(t, alVolver, { passive: true, capture: true }); });
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') alVolver(); });
+  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('controllerchange', function () { if (habiaControlador) recargarApp(); habiaControlador = true; });
 
   // ---------- arranque ----------
   if (auth.isSignInWithEmailLink(location.href)) {

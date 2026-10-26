@@ -363,3 +363,14 @@ a.btn{color:var(--fg)}a.btn.btn-primary{color:var(--accent-ink)}
 .two-btn>:only-child{grid-column:1/-1}
 .rk-list li.rk-sep{display:block;border-top:0;padding:10px 0 2px;font-family:var(--f-board);font-weight:700;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 button.countdown .cd{font-size:18px}
+/* tiempo en huecos: horas : min : seg */
+.tiempo{display:grid;grid-template-columns:minmax(0,.8fr) auto minmax(0,1fr) auto minmax(0,1fr);align-items:start;gap:6px}
+.tiempo>b{font:800 24px/48px var(--f-board);color:var(--muted)}
+.tiempo .tz{display:flex;flex-direction:column;align-items:center;gap:3px;margin:0;min-width:0}
+.tiempo .tz input{width:100%;text-align:center;font:700 24px var(--f-board);padding:8px 4px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-variant-numeric:tabular-nums}
+.sheet .tiempo .tz input,.prf .tiempo .tz input{padding:8px 4px;font:700 24px var(--f-board)}
+.tiempo .tz span{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.tiempo .tz:first-child input{opacity:.85}
+.tiempo.mal .tz input{border-color:var(--danger);box-shadow:0 0 0 1px var(--danger)}
+.tiempo.off{opacity:.45}
+.three:has(>div[hidden]){grid-template-columns:1fr 1fr}
