@@ -316,7 +316,10 @@
     if (generales.length) html += generales.map(notaPersonal).join('');
     if (fijas.length) html += '<details class="foryou fixed"><summary>Tus indicaciones fijas (' + fijas.length + ')</summary><div class="exp-body">' +
       fijas.map(function (n) { return '<div><div class="part-lbl">' + esc(n.tipo) + (n.bloque ? ' · bloque ' + n.bloque : '') + '</div><p style="margin:0;white-space:pre-line">' + esc(n.texto) + '</p></div>'; }).join('') + '</div></details>';
-    html += '<div class="blocks">' + x.bloques.map(function (b) { return bloque(b, pers, x, d); }).join('') + '</div>';
+    if (x.variantesNombres && x.variantesNombres.length) html += '<div class="variant-note">' + x.variantesNombres.map(function (n) {
+      return '<span class="v-tag">' + esc(nombreVersion(n)) + '</span>'; }).join('') + '<span>Si compites, abre los desplegables naranjas de cada bloque: ahí está lo que cambia.</span></div>';
+    html += '<div class="blocks">' + x.bloques.map(function (b) { return bloque(b, pers, x, d); }).join('') +
+      (x.variantesExtra || []).map(bloqueExtra).join('') + '</div>';
     if (x.notasDia && x.notasDia.length) html += '<details class="daynotes"><summary>Más notas del coach</summary><div class="exp-body prose">' +
       x.notasDia.map(function (n) { return (n.titulo ? '<div class="part-lbl">' + esc(n.titulo) + '</div>' : '') + prosa(n.texto); }).join('') + '</div></details>';
     html += tarjetaSesion(d, x);
@@ -362,11 +365,40 @@
       main.map(parte).join('') +
       (adapt.length ? '<details><summary>Adaptaciones</summary><div class="exp-body">' + adapt.map(parte).join('') + '</div></details>' : '') +
       (notas ? '<details><summary>Notas del coach</summary><div class="exp-body">' + notas + '</div></details>' : '') +
+      (b.variantes || []).map(function (v) { return htmlVariante(v, parte); }).join('') +
       (x && x.iso <= d.hoy && b.n ? '<div class="rate"><span class="rate-lbl">Tu RPE</span>' +
         chips({ tipo: 'bloque', dia: x.iso, bloque: b.n, etiqueta: b.n + ' · ' + b.titulo }, valorDe(d, x.iso + '|Bloque|' + b.n)) + '</div>' : '') +
       '</article>';
   }
 
+
+  // ---------- versiones especiales (p. ej. pestaña "26/10/2026 BADAJOZ") ----------
+  function nombreVersion(n) { return String(n || '').toLowerCase().replace(/(^|\s)\S/g, function (c) { return c.toUpperCase(); }); }
+  function htmlVariante(v, parte) {
+    var tag = '<span class="v-tag">' + esc(nombreVersion(v.nombre)) + '</span>';
+    if (v.tipo === 'quita') return '<div class="variant none">' + tag + '<span>No se hace este bloque</span></div>';
+    var cuerpo = '';
+    if (v.tipo === 'sustituye') {
+      cuerpo = '<div class="v-title">' + esc(v.titulo) + '</div>' + v.partes.map(parte).join('');
+    } else {
+      if (v.titulo) cuerpo += '<div class="v-title">' + esc(v.titulo) + '</div>';
+      cuerpo += v.partes.map(function (p) {
+        return '<div class="v-part">' + (p.cambio === 'nueva' ? '<span class="v-mark">Nuevo</span>' : '') + parte(p) + '</div>';
+      }).join('');
+      if (v.quitadas && v.quitadas.length) cuerpo += '<p class="v-off">No se hace: ' + v.quitadas.map(esc).join(' · ') + '</p>';
+    }
+    var resumen = v.tipo === 'sustituye' ? 'En su lugar: ' + esc(v.titulo) : 'Cambios para ' + esc(nombreVersion(v.nombre));
+    return '<details class="variant">' + '<summary>' + tag + '<span class="v-sum">' + resumen + '</span></summary><div class="exp-body">' + cuerpo + '</div></details>';
+  }
+  function bloqueExtra(e) {
+    var b = e.bloque;
+    function parte(p) {
+      return '<div class="part">' + (p.etiqueta && p.tipo !== 'adapt' ? '<div class="part-lbl">' + esc(p.etiqueta) + '</div>' : '') +
+        (p.texto ? '<div class="board small">' + pizarra(p.texto, { bloque: levantamiento(b.titulo) }) + '</div>' : '') + '</div>';
+    }
+    return '<details class="variant extra"><summary><span class="v-tag">' + esc(nombreVersion(e.nombre)) + '</span><span class="v-sum">Bloque extra: ' +
+      esc(b.titulo) + '</span></summary><div class="exp-body">' + b.partes.map(parte).join('') + '</div></details>';
+  }
 
   // ---------- valoraciones (RPE) ----------
   function valorDe(d, k) { return (d.valoraciones && d.valoraciones[k]) || null; }
