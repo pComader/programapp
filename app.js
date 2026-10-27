@@ -166,20 +166,52 @@
     return a.length ? '<div class="socials"><div class="hint">¿Dudas? Habla con Gabi</div><div class="social-row">' + a.join('') + '</div></div>' : '';
   }
 
-  function pantallaLogin(msg) {
+  /** Pantalla de entrada: dos pestañas. ACCESO = entrar (Google u otro correo). REGISTRO = pedir acceso (nombre + correo). */
+  function pantallaLogin(msg, pestana) {
+    var reg = (pestana || S.loginTab) === 'registro';
+    S.loginTab = reg ? 'registro' : 'acceso';
+    var aviso = msg ? '<div class="' + (msg.ok ? 'hint ok-msg' : 'err') + '" role="status">' + esc(msg.t) + '</div>' : '';
+    var acceso =
+      '<p>Entra con la cuenta que le diste a Gabi.</p>' +
+      '<button class="btn btn-primary" id="gbtn" type="button">Entrar con Google</button>' +
+      (CFG.microsoft ? '<button class="btn" id="msbtn" type="button">Entrar con Microsoft (Outlook, Hotmail)</button>' : '') +
+      '<div class="or">u otro correo</div>' +
+      '<form id="mailf" class="field"><label for="mail">Tu correo</label>' +
+      '<input id="mail" type="email" autocomplete="email" inputmode="email" required placeholder="ej. tu@yahoo.es · @outlook.com">' +
+      '<button class="btn" type="submit" id="mailbtn">Enviarme el enlace para entrar</button></form>' +
+      '<div class="hint">Te llega un correo con un enlace: ábrelo en este mismo dispositivo y entras sin contraseña.</div>' +
+      '<div class="hint">¿Es tu primera vez? <button class="link" type="button" data-tab="registro">Regístrate</button></div>';
+    var registro =
+      '<p>¿Aún no tienes acceso? Pídelo aquí. Gabi lo aprueba y después entras en <b>Acceso</b> con este mismo correo.</p>' +
+      '<form id="regf" class="field"><label for="reg-n">Nombre completo</label>' +
+      '<input id="reg-n" required minlength="5" maxlength="80" autocomplete="name" placeholder="Ana García López">' +
+      '<label for="reg-m">Correo</label><input id="reg-m" type="email" required autocomplete="email" inputmode="email" placeholder="ej. tu@gmail.com · @yahoo.es">' +
+      '<button class="btn btn-primary" type="submit" id="regbtn">Solicitar acceso</button></form>' +
+      '<div class="hint">Usa el correo con el que vas a entrar (el de tu cuenta de Google, si entras con Google).</div>';
     $app.innerHTML =
       '<section class="login">' +
       '<div class="brand">Fabrik Program</div>' +
-      '<p>La programación semanal de Gabi. Entra con la cuenta que le diste a Gabi.</p>' +
-      '<button class="btn btn-primary" id="gbtn" type="button">Entrar con Google</button>' +
-      (CFG.microsoft ? '<button class="btn" id="msbtn" type="button">Entrar con Microsoft (Outlook, Hotmail)</button>' : '') +
-      '<div class="or">o con cualquier correo (Outlook, Hotmail, iCloud…)</div>' +
-      '<form id="mailf" class="field"><label for="mail">Email</label>' +
-      '<input id="mail" type="email" autocomplete="email" inputmode="email" required placeholder="tu@email.com">' +
-      '<button class="btn" type="submit" id="mailbtn">Enviarme el enlace</button></form>' +
-      (msg ? '<div class="' + (msg.ok ? 'hint' : 'err') + '" role="status">' + esc(msg.t) + '</div>' : '') +
-      redesHtml() +
+      '<div class="seg login-tabs" role="tablist"><button type="button" role="tab" data-tab="acceso" aria-pressed="' + !reg + '">Acceso</button>' +
+      '<button type="button" role="tab" data-tab="registro" aria-pressed="' + reg + '">Registro</button></div>' +
+      (reg ? registro : acceso) + aviso + redesHtml() +
       '</section>';
+    [].forEach.call($app.querySelectorAll('[data-tab]'), function (b) { b.onclick = function () { pantallaLogin(null, b.dataset.tab); }; });
+    if (reg) {
+      document.getElementById('regf').onsubmit = function (ev) {
+        ev.preventDefault();
+        var nombre = document.getElementById('reg-n').value.trim(), email = document.getElementById('reg-m').value.trim().toLowerCase();
+        if (nombre.split(/\s+/).length < 2) { pantallaLogin({ t: 'Escribe tu nombre y al menos un apellido.' }, 'registro'); return; }
+        var btn = document.getElementById('regbtn'); btn.disabled = true; btn.textContent = 'Enviando…';
+        fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'registro', nombre: nombre, email: email }) })
+          .then(function (r) { return r.json(); })
+          .then(function (r) {
+            if (!r.ok) throw new Error(r.error);
+            if (r.estado === 'ya_tiene_acceso') pantallaLogin({ ok: true, t: 'Ese correo ya tiene acceso. Entra aquí con Google o con el enlace al correo.' }, 'acceso');
+            else pantallaLogin({ ok: true, t: 'Solicitud enviada. Cuando Gabi la apruebe, entra en Acceso con ' + email + '.' }, 'acceso');
+          }).catch(function (e) { pantallaLogin({ t: mensajeError(e.message) }, 'registro'); });
+      };
+      return;
+    }
     document.getElementById('gbtn').onclick = function () {
       var p = new firebase.auth.GoogleAuthProvider();
       p.setCustomParameters({ prompt: 'select_account' });
@@ -258,16 +290,19 @@
     if (S.vista === 'ajustes') return renderAjustes();
     if (S.vista === 'ficha') return renderFicha();
     if (S.vista === 'ranking') return renderRanking();
+    if (d.soloEventos) return renderSoloEventos(d);
     if (!d.dias || !d.dias.length) {
       $app.innerHTML = cabecera(d) + '<div class="empty">Gabi todavía no ha publicado la semana.' +
         (d.proxima ? '<br>Próxima publicación: ' + esc(d.proxima) + '.' : '') + '</div>';
       enlazarCabecera(); return;
     }
     var aviso = d.publicada === false ? '<div class="unpub">Vista previa · ' + (d.proxima ? 'se publica el ' + esc(d.proxima) : 'aún sin publicar') + '</div>' : '';
-    $app.innerHTML = cabecera(d) + aviso + tarjetaSemana(d) + ciclo(d) + semana(d) + '<main class="day" id="day">' + dia(d, d.dias[S.dia]) + '</main>' +
+    TM.reg = [];
+    $app.innerHTML = cabecera(d) + bannerInstalar() + aviso + tarjetaSemana(d) + ciclo(d) + semana(d) + '<main class="day" id="day">' + dia(d, d.dias[S.dia]) + '</main>' +
       (S.aviso ? '<div class="stale">' + esc(S.aviso) + '</div>' : '');
     enlazarCabecera();
     abrirAvisosPendientes(d);
+    avisoSeguimiento(d);
   }
 
   function cabecera(d) {
@@ -278,7 +313,7 @@
       '<button class="icon-btn" id="prev" type="button" aria-label="Semana anterior"' + (idx <= 0 ? ' disabled' : '') + '>‹</button>' +
       '<span class="lbl">' + esc(lbl) + '</span>' +
       '<button class="icon-btn" id="next" type="button" aria-label="Semana siguiente"' + (idx < 0 || idx >= d.semanas.length - 1 ? ' disabled' : '') + '>›</button>' +
-      '</div><button class="icon-btn share" id="compartir" type="button" aria-label="Compartir la app">' + ICO_SHARE + '</button>' +
+      '</div>' + botonCalc() + '<button class="icon-btn share" id="compartir" type="button" aria-label="Compartir la app">' + ICO_SHARE + '</button>' +
       '<button class="who" id="perfil" type="button" aria-label="Menú">' + esc(ini) + '</button></header>';
   }
 
@@ -382,7 +417,7 @@
       var ctx = { bloque: ctxB.bloque, desdePower: ctxB.desdePower, parte: levantamiento(p.texto) || levantamiento(p.etiqueta) };
       var etq = p.tipo === 'adapt' ? '' : p.etiqueta;
       return '<div class="part">' + (etq ? '<div class="part-lbl">' + esc(etq) + '</div>' : '') +
-        (p.texto ? '<div class="board' + (p.tipo !== 'main' ? ' small' : '') + '">' + pizarra(p.texto, ctx) + '</div>' : '') + '</div>';
+        (p.texto ? '<div class="board' + (p.tipo !== 'main' ? ' small' : '') + '">' + pizarra(p.texto, ctx) + '</div>' : '') + tmBoton(p, b, x) + '</div>';
     }
     var prep = b.partes.filter(function (p) { return p.tipo === 'prep'; });
     var main = b.partes.filter(function (p) { return p.tipo === 'main'; });
@@ -522,7 +557,8 @@
   function refrescarHoja(o) { if (o.tipo === 'semana' && !$scrim.hidden) { var c = document.getElementById('com-sem'); var t = c ? c.value : null; abrirValorarSemana(); if (t != null) document.getElementById('com-sem').value = t; } }
   function mensajeError(m) {
     return { dia_futuro: 'Solo se pueden valorar el día de hoy y los anteriores.', fuera_de_plazo: 'La valoración de la semana se abre el sábado a las 12:00 y cierra el martes a las 23:59.',
-      solo_staff: 'Solo Coach y Admin pueden hacer esto.', falta_nombre: 'Escribe tu nombre y apellidos.', falta_marca: 'Pon un nombre a la marca.',
+      solo_staff: 'Solo Coach y Admin pueden hacer esto.', solo_eventos: 'Tu acceso es solo para tus eventos.', version_no_permitida: 'Ese resultado es solo para quien está apuntado a ese evento.',
+      email_no_valido: 'Revisa el correo.', demasiadas_solicitudes: 'Hay muchas solicitudes ahora mismo. Prueba en un rato.', sexo_no_valido: 'Elige chico o chica.', falta_nombre: 'Escribe tu nombre y apellidos.', falta_marca: 'Pon un nombre a la marca.',
       valor_no_valido: 'Revisa el valor (el tiempo en minutos y segundos).', tipo_no_valido: 'Elige un tipo válido.', falta_ejercicio: 'Escribe el ejercicio.',
       video_no_valido: 'El vídeo tiene que ser un enlace.', tiempo_no_valido: 'Revisa el tiempo: minutos y segundos (los segundos de 0 a 59).', falta_bloque: 'Elige el bloque.',
       nota_vacia: 'Escribe la nota.', evento_repetido: 'Ya hay un evento activo con ese nombre.', evento_no_encontrado: 'Ese evento no existe.', no_encontrado: 'Ya no existe.',
@@ -585,7 +621,7 @@
 
   function cabeceraVista(titulo, atras) {
     return '<header class="top"><button class="btn-ghost" type="button" id="atras">‹ ' + esc(atras) + '</button>' +
-      '<span class="view-title">' + esc(titulo) + '</span></header>';
+      '<span class="view-title">' + esc(titulo) + '</span>' + botonCalc() + '</header>';
   }
 
   function seccion(id, titulo, cuerpo, extra, ico) {
@@ -599,17 +635,18 @@
     var evs = (d.eventos || []).filter(function (e) { return e.mio && !e.pasado; });
     var avisos = misAvisos(d);
     var nuevosAv = avisos.filter(function (a) { return !a.visto && !a.pasado; }).length;
-    var html = cabeceraVista('Menú', 'Semana') +
+    var solo = !!d.soloEventos;
+    var html = cabeceraVista('Menú', solo ? 'Eventos' : 'Semana') +
       '<section class="me"><div class="who big">' + esc((u.nombre || '?').charAt(0).toUpperCase()) + '</div><div><b>' + esc(u.nombre) + '</b>' +
-      '<div class="hint">' + esc(u.email) + (u.grupo ? ' · ' + esc(u.grupo) : '') + '</div></div>' +
-      '<button class="btn-ghost" type="button" id="compartir2">Compartir app</button></section>';
+      '<div class="hint">' + esc(u.email) + (u.grupo ? ' · ' + esc(u.grupo) : '') + (solo ? ' · solo eventos' : '') + '</div></div>' +
+      '<button class="btn-ghost" type="button" id="compartir2">Compartir app</button>' + (solo ? '' : htmlPerfilSexo()) + '</section>';
 
     html += seccion('s-eventos', 'Mis eventos', htmlEventos(d), evs.length ? String(evs.length) : '', '★');
     html += seccion('s-avisos', 'Avisos', htmlAvisos(avisos), nuevosAv ? String(nuevosAv) : '', '!');
-    html += seccion('s-notas', 'Notas del coach', htmlNotasSemana(d) + '<div class="part-lbl" style="margin-top:10px">Ejercicios recomendados</div>' + htmlRecsAtleta(d.recomendaciones || []), '', '✎');
-    html += '<button class="set-link" type="button" id="ir-ranking"><span class="set-ico">🏆</span>Leaderboard<span class="go">›</span></button>';
-    html += seccion('s-marcas', 'Mis marcas', htmlMarcas(d), '', '◆');
-    html += seccion('s-desc', '% Descuentos', '<div id="desc-body"><div class="hint">Cargando…</div></div>', d.descuentosPendientes ? d.descuentosPendientes + ' pendiente' + (d.descuentosPendientes > 1 ? 's' : '') : '', '%');
+    if (!solo) html += seccion('s-notas', 'Notas del coach', htmlNotasSemana(d) + '<div class="part-lbl" style="margin-top:10px">Ejercicios recomendados</div>' + htmlRecsAtleta(d.recomendaciones || []), '', '✎');
+    if (!solo) html += '<button class="set-link" type="button" id="ir-ranking"><span class="set-ico">🏆</span>Leaderboard<span class="go">›</span></button>';
+    if (!solo) html += seccion('s-marcas', 'Mis marcas', htmlMarcas(d), '', '◆');
+    if (!solo) html += seccion('s-desc', '% Descuentos', '<div id="desc-body"><div class="hint">Cargando…</div></div>', d.descuentosPendientes ? d.descuentosPendientes + ' pendiente' + (d.descuentosPendientes > 1 ? 's' : '') : '', '%');
     if (d.staff) html += seccion('s-coach', 'Coach', htmlCoach(d), d.solicitudesPendientes ? d.solicitudesPendientes + ' solicitud' + (d.solicitudesPendientes > 1 ? 'es' : '') : '', '⚑');
     html += seccion('s-tema', 'Apariencia', '<div class="seg" role="group" aria-label="Tema">' + Object.keys(TEMAS).map(function (k) {
       return '<button type="button" data-tema="' + k + '" aria-pressed="' + (tema === k) + '">' + TEMAS[k] + '</button>'; }).join('') + '</div>' +
@@ -620,8 +657,10 @@
     document.getElementById('atras').onclick = volverSemana;
     document.getElementById('logout').onclick = function () { S.vista = null; auth.signOut(); };
     document.getElementById('compartir2').onclick = compartirApp;
-    document.getElementById('ir-ranking').onclick = function () { abrirLeaderboard(); };
-    document.getElementById('s-desc').addEventListener('toggle', function () { if (this.open) cargarDescuentos(); });
+    if (!solo) {
+      document.getElementById('ir-ranking').onclick = function () { abrirLeaderboard(); };
+      document.getElementById('s-desc').addEventListener('toggle', function () { if (this.open) cargarDescuentos(); });
+    }
     enlazarMarcas();
     var ab = S._abrir; S._abrir = null; if (ab && document.getElementById(ab)) { document.getElementById(ab).open = true; if (ab === 's-desc') cargarDescuentos(); }
   }
@@ -751,35 +790,14 @@
     };
   }
 
-  // ---------- Instalar ----------
-  function plataforma() {
-    var ua = navigator.userAgent || '';
-    if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
-    if (/Android/i.test(ua)) return 'android';
-    if (/Mac/i.test(ua)) return 'mac';
-    return 'windows';
-  }
-  function htmlInstalar() {
-    var p = plataforma(), movil = p === 'ios' || p === 'android';
-    var pasosPC = '<ol class="steps"><li><b>Chrome o Edge (Windows y Mac):</b> abre la app y, en la barra de direcciones, pulsa el icono <b>Instalar</b> (una pantalla con una flecha). Si no aparece: menú <b>⋮</b> → <b>Enviar, guardar y compartir</b> → <b>Instalar página como aplicación</b> (en Edge: <b>Aplicaciones → Instalar este sitio como una aplicación</b>).</li>' +
-      '<li>Pulsa <b>Instalar</b>. Se crea un icono en el escritorio y en el menú Inicio (Windows) o en Aplicaciones/Launchpad (Mac).</li>' +
-      '<li><b>Safari en Mac:</b> menú <b>Archivo → Añadir al Dock</b>.</li>' +
-      '<li>Para tenerla a mano en Windows, haz clic derecho en el icono de la barra de tareas → <b>Anclar a la barra de tareas</b>.</li></ol>';
-    var pasosMovil = '<ol class="steps"><li><b>iPhone (Safari):</b> abre la app en Safari, pulsa <b>Compartir</b> (el cuadrado con la flecha hacia arriba) → <b>Añadir a pantalla de inicio</b> → <b>Añadir</b>.</li>' +
-      '<li><b>Android (Chrome):</b> menú <b>⋮</b> (arriba a la derecha) → <b>Añadir a pantalla de inicio</b> o <b>Instalar aplicación</b> → <b>Instalar</b>.</li>' +
-      '<li>Aparece el icono de Fabrik Program con el resto de tus apps. Se abre a pantalla completa, sin barra del navegador.</li></ol>';
-    return (S.instalar ? '<button class="btn btn-primary" type="button" id="instalar-ya">Instalar ahora</button>' : '') +
-      '<details class="tut"' + (!movil ? ' open' : '') + '><summary>Ordenador · Windows / Mac</summary>' + pasosPC + '</details>' +
-      '<details class="tut"' + (movil ? ' open' : '') + '><summary>Móvil · Android / iPhone</summary>' + pasosMovil + '</details>';
-  }
-
   // ---------- Coach ----------
   function htmlCoach(d) {
     return '<div class="coach-grid">' +
       '<button class="btn" type="button" id="co-atletas">Atletas · ficha</button>' +
       '<button class="btn" type="button" id="co-eventos">Eventos y avisos</button>' +
       '<button class="btn" type="button" id="co-notas">Nota a un evento o a todos</button>' +
-      '<button class="btn" type="button" id="co-solic">Solicitudes' + (d.solicitudesPendientes ? ' (' + d.solicitudesPendientes + ')' : '') + '</button></div>' +
+      '<button class="btn" type="button" id="co-solic">Solicitudes' + (d.solicitudesPendientes ? ' (' + d.solicitudesPendientes + ')' : '') + '</button>' +
+      '<button class="btn' + (segPend(d) ? ' seg-alert' : '') + '" type="button" data-seg-abrir>Seguimiento' + (segPend(d) ? ' (' + segPend(d) + ')' : '') + '</button></div>' +
       '<div class="hint">Las propuestas de descuento se aprueban en «% Descuentos».</div>';
   }
 
@@ -794,8 +812,8 @@
       var q = norm(document.getElementById(contenedorId + '-q').value).trim();
       var f = lista.filter(function (a) { return !q || norm(a.nombre).indexOf(q) >= 0 || norm(a.email).indexOf(q) >= 0; }).slice(0, 12);
       document.getElementById(contenedorId + '-r').innerHTML = f.length ? f.map(function (a) {
-        return '<button type="button" class="res" data-e="' + esc(a.email) + '"><b>' + esc(a.nombre) + '</b><span>' + esc(a.email) + '</span>' +
-          '<span class="chip">' + esc(a.grupo || '—') + (a.activo === false ? ' · desactivado' : '') + '</span></button>';
+        return '<button type="button" class="res' + (a.seguimiento ? ' seg' : '') + '" data-e="' + esc(a.email) + '"><b>' + esc(a.nombre) + '</b><span>' + esc(a.email) + '</span>' +
+          '<span class="chip">' + (a.seguimiento ? '<b class="seg-tag">Seguimiento</b> · ' : '') + esc(a.grupo || '—') + (a.activo === false ? ' · desactivado' : '') + '</span></button>';
       }).join('') : '<div class="hint">Nadie coincide con la búsqueda.</div>';
     }
     var cargarLista = S._atletas ? Promise.resolve({ ok: true, atletas: S._atletas }) : api({ action: 'atletas' });
@@ -803,7 +821,7 @@
       if (!r.ok) throw new Error(r.detalle || r.error);
       S._atletas = r.atletas;
       lista = r.atletas.filter(function (a) { return !opciones || !opciones.soloActivos || a.activo; })
-        .sort(function (a, b) { return a.nombre.localeCompare(b.nombre); });
+        .sort(function (a, b) { return (b.seguimiento ? 1 : 0) - (a.seguimiento ? 1 : 0) || a.nombre.localeCompare(b.nombre); });
       pintar();
     }).catch(function (e) { document.getElementById(contenedorId + '-r').innerHTML = '<div class="err">' + esc(mensajeError(e.message)) + '</div>'; });
     document.getElementById(contenedorId + '-q').oninput = pintar;
@@ -964,7 +982,10 @@
       var ev = s.tipo === 'Evento';
       return '<div class="sol"><span class="ev-tipo">' + (ev ? 'Evento · ' + esc(s.detalle) : 'Acceso') + '</span><div class="confirm-name">' + esc(s.nombre) + '</div><div>' + esc(s.email) + '</div>' +
         '<div class="hint">' + esc(s.fecha) + (s.sexo ? ' · ' + esc(s.sexo) : '') + (!ev && s.existe ? ' · ya existe en ATLETAS (' + esc(s.existe) + ')' : '') + '</div>' + (s.mensaje && !ev ? '<p>' + esc(s.mensaje) + '</p>' : '') +
-        (ev ? '' : '<label class="lbl-s">Grupo si se aprueba</label><select data-grupo-de="' + i + '"><option>Box</option><option>Individual</option><option>Otro</option><option>Coach</option></select>') +
+        (ev ? '' : '<label class="lbl-s">Grupo si se aprueba</label><select data-grupo-de="' + i + '"><option>Box</option><option>Individual</option><option>Otro</option><option>Coach</option></select>' +
+          '<label class="lbl-s">Acceso</label><select data-acceso-de="' + i + '"><option value="">Completo (programación y todo)</option><option value="Solo eventos">Solo eventos</option></select>' +
+          '<label class="lbl-s">Evento (opcional)</label><select data-evento-de="' + i + '"><option value="">—</option>' +
+          ((S.data && S.data.eventos) || []).filter(function (e) { return !e.pasado; }).map(function (e) { return '<option>' + esc(e.nombre) + '</option>'; }).join('') + '</select>') +
         '<div class="two-btn"><button type="button" class="btn" data-resolver="0" data-i="' + i + '">Rechazar</button>' +
         '<button type="button" class="btn btn-primary" data-resolver="1" data-i="' + i + '">Aprobar</button></div></div>';
     }).join('') : '<div class="hint">No hay solicitudes pendientes.</div>';
@@ -990,6 +1011,10 @@
       html += '<section class="me"><div class="who big">' + esc(a.nombre.charAt(0).toUpperCase()) + '</div><div><b>' + esc(a.nombre) + '</b>' +
         '<div class="hint">' + esc(a.email) + '</div><div class="hint">' + esc([a.grupo || '—', a.sexo, a.rol].filter(Boolean).join(' · ')) + (a.activo ? '' : ' · <b>desactivado</b>') + '</div>' +
         (a.eventos && a.eventos.length ? '<div class="ev-chips">' + a.eventos.map(function (e) { return '<span class="ev-tipo">' + esc(e) + '</span>'; }).join('') + '</div>' : '') + '</div></section>';
+      html += '<button class="btn seg-btn' + (a.seguimiento ? ' on' : '') + '" type="button" data-seguir="' + (a.seguimiento ? '0' : '1') + '">' +
+        (a.seguimiento ? '<span>● En seguimiento</span><span class="hint">Quitar</span>' : '<span>Poner en seguimiento</span><span class="hint">Su feedback sale primero y sus notas te avisan</span>') + '</button>';
+      var pendA = ((S.data && S.data.seguimiento && S.data.seguimiento.pendientes) || []).filter(function (n) { return n.email === a.email; });
+      if (pendA.length) html += '<div class="seg-list">' + pendA.map(segItem).join('') + '</div>';
       html += '<div class="two-btn"><button class="btn btn-primary" type="button" id="fi-nota">Nota para ' + esc(a.nombre.split(' ')[0]) + '</button><button class="btn" type="button" id="fi-av">Aviso solo para él/ella</button></div>';
       var notasAct = (f.notas || []).filter(function (n) { return n.activa; });
       html += seccion('fi-notas', 'Notas', notasAct.length ? notasAct.map(function (n) {
@@ -1243,11 +1268,12 @@
   function abrirResultado(iso, n, versionPre) {
     var d = S.data, b = bloqueDe(iso, n);
     if (!b) return;
-    var versiones = [''].concat((b.variantes || []).filter(function (v) { return v.tipo !== 'quita'; }).map(function (v) { return v.nombre; }));
+    var versiones = [''].concat((b.variantes || []).filter(function (v) { return v.tipo !== 'quita' && versionPermitida(v.nombre); }).map(function (v) { return v.nombre; }));
     var version = versionPre != null ? versionPre : (versiones.length > 1 && (d.eventos || []).some(function (e) { return e.mio && norm(e.nombre).indexOf(norm(versiones[1])) >= 0; }) ? versiones[1] : '');
     var previo = (d.resultados || {})[iso + '|' + n + '|' + version];
     var tipo = previo ? previo.tipo : formatoWod(b), nivel = previo ? previo.nivel : 'RX';
     var v = previo ? leerResultado(previo) : {};
+    if (S._prefTiempo) { v.tiempo = S._prefTiempo; v.cap = false; tipo = 'Tiempo'; S._prefTiempo = null; }
     var seg = function (id, ops, actual) {
       return '<div class="seg" role="group" id="' + id + '">' + ops.map(function (o) {
         var val = o[0], lbl = o[1];
@@ -1398,36 +1424,637 @@
       (id ? '<div class="player"><iframe src="https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&playsinline=1&rel=0&modestbranding=1" title="' + esc(nombre) + '" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>' : '') +
       '<a class="btn" href="' + esc(url) + '" target="_blank" rel="noopener">Abrir en YouTube</a>');
   }
+  // =====================================================================
+  //  EXTRA v4.1 · calculadora lb/kg · instalar en cualquier sistema · acceso «Solo eventos» · perfil
+  // =====================================================================
+
+  // ---------- calculadora lb ⇄ kg (ventana flotante, no tapa ni cambia la pantalla) ----------
+  var LB = 0.45359237;
+  var ICO_CALC = '<span class="calc-ico" aria-hidden="true">lb<i>⇄</i>kg</span>';
+  function botonCalc() { return '<button class="icon-btn calc-btn" type="button" data-calc aria-label="Calculadora libras a kilos">' + ICO_CALC + '</button>'; }
+  function redondear(x) { return Math.round(x * 10) / 10; }
+  function fmtNum(x) { return isFinite(x) ? String(redondear(x)).replace('.', ',') : ''; }
+  function leerNum(v) { var n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? NaN : n; }
+  function toggleCalc(forzar) {
+    var el = document.getElementById('calc');
+    if (el && forzar !== true) { el.remove(); guardar('pa-calc', false); return; }
+    if (el) return;
+    el = document.createElement('div');
+    el.id = 'calc'; el.className = 'calc'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Calculadora libras y kilos');
+    var ult = leer('pa-calc-v') || '';
+    el.innerHTML = '<div class="calc-top"><b>Libras ⇄ kilos</b><button class="icon-btn" type="button" data-calc-cerrar aria-label="Cerrar">×</button></div>' +
+      '<div class="calc-row"><label><input id="calc-lb" inputmode="decimal" autocomplete="off" placeholder="135"><span>lb</span></label><b aria-hidden="true">=</b>' +
+      '<label><input id="calc-kg" inputmode="decimal" autocomplete="off" placeholder="61,2"><span>kg</span></label></div>' +
+      '<div class="calc-chips" id="calc-chips">' + [45, 35, 95, 135, 185, 225].map(function (n) { return '<button type="button" data-lb="' + n + '">' + n + ' lb</button>'; }).join('') + '</div>' +
+      '<div class="hint">Barra olímpica: 45 lb ≈ 20,4 kg · 35 lb ≈ 15,9 kg</div>';
+    document.body.appendChild(el);
+    var lb = document.getElementById('calc-lb'), kg = document.getElementById('calc-kg');
+    lb.oninput = function () { var n = leerNum(lb.value); kg.value = isNaN(n) ? '' : fmtNum(n * LB); guardar('pa-calc-v', lb.value); };
+    kg.oninput = function () { var n = leerNum(kg.value); lb.value = isNaN(n) ? '' : fmtNum(n / LB); guardar('pa-calc-v', lb.value); };
+    if (ult) { lb.value = ult; lb.oninput(); }
+    guardar('pa-calc', true);
+  }
+
+  // ---------- instalar la app: Windows/Mac/Android con botón; iPhone/iPad con pasos guiados ----------
+  function esStandalone() {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  }
+  function entorno() {
+    var ua = navigator.userAgent || '', ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document);
+    var nav = /CriOS/.test(ua) ? 'chrome' : /FxiOS|Firefox/.test(ua) ? 'firefox' : /EdgiOS|Edg\//.test(ua) ? 'edge' : /SamsungBrowser/.test(ua) ? 'samsung' :
+      /Chrome|Chromium/.test(ua) ? 'chrome' : /Safari/.test(ua) ? 'safari' : 'otro';
+    var so = ios ? 'ios' : /Android/i.test(ua) ? 'android' : /Mac/i.test(ua) ? 'mac' : 'windows';
+    return { so: so, nav: nav };
+  }
+  var ICO_IOS_SHARE = '<svg class="ico-inline" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 11H5v10h14V11h-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>';
+  function pasosInstalar() {
+    var e = entorno();
+    if (e.so === 'ios') return '<ol class="steps">' +
+      '<li>Pulsa <b>Compartir</b> ' + ICO_IOS_SHARE + (e.nav === 'safari' ? ' (abajo en el centro en iPhone; arriba en iPad).' : ' (en Chrome está arriba a la derecha, junto a la dirección).') + '</li>' +
+      '<li>Desliza hacia abajo y toca <b>Añadir a pantalla de inicio</b>. Si no aparece: <b>Editar acciones</b> y actívala.</li>' +
+      '<li>Pulsa <b>Añadir</b>. El icono de Fabrik aparece con tus apps y se abre a pantalla completa.</li></ol>' +
+      '<div class="hint">Apple no deja que una web se instale sola con un botón: hay que hacerlo desde Compartir. Funciona en Safari y, desde iOS 16.4, también en Chrome y Edge.</div>';
+    if (e.so === 'android') return '<ol class="steps">' +
+      (e.nav === 'samsung' ? '<li>Menú <b>≡</b> (abajo) → <b>Añadir página a</b> → <b>Pantalla de inicio</b>.</li>' :
+        e.nav === 'firefox' ? '<li>Menú <b>⋮</b> → <b>Instalar</b> (o <b>Añadir a pantalla de inicio</b>).</li>' :
+        '<li>Menú <b>⋮</b> (arriba a la derecha) → <b>Instalar aplicación</b> (o <b>Añadir a pantalla de inicio</b>).</li>') +
+      '<li>Pulsa <b>Instalar</b>. Aparece el icono de Fabrik con tus apps.</li></ol>';
+    if (e.so === 'mac' && e.nav === 'safari') return '<ol class="steps"><li>Menú <b>Archivo → Añadir al Dock</b> (Safari 17 o posterior).</li><li>Pulsa <b>Añadir</b>. Se abre como una app más desde el Dock o Launchpad.</li></ol>';
+    if (e.nav === 'firefox') return '<p>Firefox de ordenador no instala webs como app. Abre esta misma dirección en <b>Chrome</b> o <b>Edge</b> y pulsa <b>Instalar</b>.</p>';
+    return '<ol class="steps"><li>En la barra de direcciones, pulsa el icono <b>Instalar</b> (una pantalla con una flecha). Si no aparece: menú <b>⋮</b> → <b>Enviar, guardar y compartir</b> → <b>Instalar página como aplicación</b> (Edge: <b>Aplicaciones → Instalar este sitio como una aplicación</b>).</li>' +
+      '<li>Pulsa <b>Instalar</b>. Se crea un icono en el escritorio y en el menú Inicio (Windows) o en Aplicaciones (Mac).</li></ol>';
+  }
+  function instalar() {
+    if (S.instalar) {
+      S.instalar.prompt();
+      S.instalar.userChoice.then(function (r) { S.instalar = null; if (r && r.outcome === 'accepted') toast('Instalando Fabrik Program…'); render(); });
+      return;
+    }
+    abrirHoja('<div class="row"><h2>Instalar la app</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' + pasosInstalar());
+  }
+  function htmlInstalar() {
+    if (esStandalone()) return '<div class="hint">Ya la tienes instalada: la estás usando como app. ✓</div>';
+    return '<button class="btn btn-primary" type="button" data-instalar>Instalar la app en este ' + (/ios|android/.test(entorno().so) ? 'móvil' : 'ordenador') + '</button>' +
+      (S.instalar ? '' : pasosInstalar());
+  }
+  function bannerInstalar() {
+    if (esStandalone() || leer('pa-inst-cerrado')) return '';
+    var e = entorno();
+    if (!S.instalar && e.so !== 'ios' && e.so !== 'android') return '';
+    return '<div class="inst-banner"><div><b>Instala Fabrik</b><span class="hint">Ábrela desde un icono, a pantalla completa.</span></div>' +
+      '<button class="btn btn-primary" type="button" data-instalar>Instalar</button><button class="icon-btn" type="button" data-inst-cerrar aria-label="No mostrar más">×</button></div>';
+  }
+  window.addEventListener('appinstalled', function () { S.instalar = null; guardar('pa-inst-cerrado', true); toast('App instalada'); if (S.data) render(); });
+
+  // ---------- acceso «Solo eventos»: sin programación, solo sus eventos ----------
+  function renderSoloEventos(d) {
+    var ini = (S.user.nombre || '?').trim().charAt(0).toUpperCase();
+    var evs = (d.eventos || []).filter(function (e) { return e.mio; });
+    var proximos = evs.filter(function (e) { return !e.pasado; }), pasados = evs.filter(function (e) { return e.pasado; });
+    $app.innerHTML = '<header class="top"><div class="brand sm">Fabrik Program</div>' + botonCalc() +
+      '<button class="icon-btn share" id="compartir" type="button" aria-label="Compartir la app">' + ICO_SHARE + '</button>' +
+      '<button class="who" id="perfil" type="button" aria-label="Menú">' + esc(ini) + '</button></header>' + bannerInstalar() +
+      '<div class="day-title"><h1>Tus eventos</h1></div>' +
+      (proximos.length ? '<div class="ev-list">' + proximos.map(function (e, i) { return tarjetaEvento(e, i === 0); }).join('') + '</div>' :
+        '<div class="empty">Todavía no tienes eventos asignados. Habla con Gabi.</div>') +
+      (pasados.length ? '<details class="hist"><summary>Pasados (' + pasados.length + ')</summary><div class="exp-body">' + pasados.map(function (e) { return tarjetaEvento(e); }).join('') + '</div></details>' : '') +
+      (S.aviso ? '<div class="stale">' + esc(S.aviso) + '</div>' : '');
+    document.getElementById('perfil').onclick = function () { abrirAjustes(); };
+    abrirAvisosPendientes(d);
+  }
+
+  // ---------- perfil: sexo (para el leaderboard) ----------
+  function htmlPerfilSexo() {
+    var s = (S.user || {}).sexo || '';
+    return '<div class="me-sexo"><span class="lbl-s">Sexo · para el leaderboard' + (s ? '' : ' <b class="falta">(sin indicar)</b>') + '</span>' +
+      '<div class="seg" role="group" aria-label="Sexo">' + ['Chico', 'Chica'].map(function (x) {
+        return '<button type="button" data-sexo="' + x + '" aria-pressed="' + (s === x) + '">' + x + '</button>'; }).join('') + '</div></div>';
+  }
+
+  // ---------- versión de evento en resultados: solo quien está en ese evento ----------
+  function versionPermitida(nombre) {
+    if (!nombre) return true;
+    var n = norm(nombre).trim(), hay = (S.data.eventos || []).filter(function (e) { return norm(e.nombre).indexOf(n) >= 0; });
+    return !hay.length || hay.some(function (e) { return e.mio; });
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target, b;
+    if (t.closest('[data-calc]')) { toggleCalc(); return; }
+    if (t.closest('[data-calc-cerrar]')) { toggleCalc(); return; }
+    if ((b = t.closest('[data-lb]'))) { var lb = document.getElementById('calc-lb'); lb.value = b.dataset.lb; lb.oninput(); return; }
+    if (t.closest('[data-instalar]')) { instalar(); return; }
+    if (t.closest('[data-inst-cerrar]')) { guardar('pa-inst-cerrado', true); var bn = t.closest('.inst-banner'); if (bn) bn.remove(); return; }
+    if ((b = t.closest('[data-sexo]'))) {
+      var sexo = b.dataset.sexo;
+      if (S.user && S.user.sexo === sexo) return;
+      b.parentNode.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+      api({ action: 'perfil', sexo: sexo }).then(function (r) {
+        if (!r.ok) throw new Error(r.detalle || r.error);
+        S.user = r.user; S._abrir = null; render(); toast('Guardado: ' + sexo);
+      }).catch(function (er) { toast(mensajeError(er.message)); render(); });
+    }
+  });
+  if (leer('pa-calc')) setTimeout(function () { toggleCalc(true); }, 0);
+
+  // ---------- seguimiento (coach) ----------
+  function segPend(d) { return d && d.seguimiento ? d.seguimiento.pendientes.length : 0; }
+  function segItem(n) {
+    return '<div class="seg-item' + (n.leida ? ' leida' : '') + '"><div class="seg-h"><b>' + esc(n.nombre) + '</b><span class="hint">' + esc(n.tipo) + ' · ' + fechaCorta(n.fecha) +
+      (n.rpe ? ' · RPE ' + esc(n.rpe) : '') + '</span></div><p>«' + esc(n.texto) + '»</p>' +
+      (n.leida ? '' : '<div class="two-btn"><button class="btn-ghost sm" type="button" data-seg-ficha="' + esc(n.email) + '">Ver ficha</button>' +
+        '<button class="btn sm" type="button" data-seg-leido="' + esc(n.id) + '">Marcar como leído</button></div>') + '</div>';
+  }
+  function abrirSeguimiento(auto) {
+    var sg = (S.data && S.data.seguimiento) || { pendientes: [], leidas: [], atletas: [] };
+    abrirHoja('<div class="row"><h2>Seguimiento</h2><button class="btn-ghost" data-close type="button">' + (auto ? 'Luego' : 'Cerrar') + '</button></div>' +
+      '<div class="hint">' + (sg.atletas.length ? 'En seguimiento: ' + sg.atletas.map(function (a) { return esc(a.nombre); }).join(', ') : 'Nadie en seguimiento. Actívalo desde la ficha del atleta o en ATLETAS → SEGUIMIENTO.') + '</div>' +
+      (sg.pendientes.length ? '<div class="part-lbl">Notas sin leer (' + sg.pendientes.length + ')</div><div class="seg-list">' + sg.pendientes.map(segItem).join('') + '</div>' +
+        (sg.pendientes.length > 1 ? '<button class="btn" type="button" data-seg-todo>Marcar todo como leído</button>' : '') : '<div class="hint">No hay notas nuevas.</div>') +
+      (sg.leidas.length ? '<details class="hist"><summary>Leídas (' + sg.leidas.length + ')</summary><div class="exp-body seg-list">' + sg.leidas.map(segItem).join('') + '</div></details>' : ''));
+  }
+  function segLeido(ids, b) {
+    if (b) b.disabled = true;
+    api({ action: 'seguimiento_leido', ids: ids }).then(function (r) {
+      if (!r.ok) throw new Error(r.detalle || r.error);
+      S.data.seguimiento = r.seguimiento; toast('Marcado como leído');
+      if (!$scrim.hidden) abrirSeguimiento(); if (S.vista === 'ficha' || S.vista === 'ajustes') render();
+    }).catch(function (e) { if (b) b.disabled = false; toast(mensajeError(e.message)); });
+  }
+  function avisoSeguimiento(d) {
+    if (!d.staff || S._segMostrado || !segPend(d) || !$scrim.hidden) return;
+    S._segMostrado = true; abrirSeguimiento(true);
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target, b;
+    if (t.closest('[data-seg-abrir]')) { abrirSeguimiento(); return; }
+    if ((b = t.closest('[data-seg-leido]'))) { segLeido([b.dataset.segLeido], b); return; }
+    if ((b = t.closest('[data-seg-todo]'))) { segLeido(S.data.seguimiento.pendientes.map(function (n) { return n.id; }), b); return; }
+    if ((b = t.closest('[data-seg-ficha]'))) { cerrarHoja(); abrirFicha(b.dataset.segFicha); return; }
+    if ((b = t.closest('[data-seguir]'))) {
+      var f = S.ficha; if (!f || !f.atleta) return;
+      b.disabled = true;
+      api({ action: 'seguimiento', email: f.atleta.email, valor: b.dataset.seguir === '1' }).then(function (r) {
+        if (!r.ok) throw new Error(r.detalle || r.error);
+        S.ficha = r.ficha; S.ficha.email = f.atleta.email; S._atletas = null;
+        return api({ action: 'seguimiento_notas' });
+      }).then(function (r) { if (r && r.ok) S.data.seguimiento = r.seguimiento; render(); toast(b.dataset.seguir === '1' ? 'En seguimiento' : 'Quitado del seguimiento'); })
+        .catch(function (er) { b.disabled = false; toast(mensajeError(er.message)); });
+    }
+  });
+
+  // =====================================================================
+  //  TIMER · detección por parte (sin dependencias: se prueba en Node con fabrik/partes.json)
+  //  Grupos: intervalo {cada, rondas, cap?} · cuenta {dur, etiqueta} · onoff {on, off, rondas}
+  //          descanso {dur} · series {series, descanso, pasos:[{t:'tiempo'|'tap'|'pausa', s?, txt?}]} · crono {}
+  //  Solo hay timer donde Gabi escribe un tiempo de estructura. Isometrías y tempos se ignoran.
+  // =====================================================================
+  var TM_TIEMPO = /(\d+)[ \t]*'[ \t]*(?:(\d{1,2})[ \t]*(?:"|''|”|″)?)?|(\d+)[ \t]*(?:"|''|”|″)/;
+  /** Primer tiempo del texto, en segundos. Rangos «2/3'» → 2'; «90"/2'» → 90". */
+  function tmSeg(s) {
+    s = String(s || '');
+    var r = s.match(/(\d+)[ \t]*\/[ \t]*\d+[ \t]*'/);
+    if (r && s.indexOf(r[0]) <= s.search(TM_TIEMPO)) return Number(r[1]) * 60;
+    var m = s.match(TM_TIEMPO);
+    if (!m) return null;
+    if (m[3]) return Number(m[3]);
+    return Number(m[1]) * 60 + Number(m[2] || 0);
+  }
+  function tmFmt(s) {
+    if (s == null) return '—';
+    s = Math.round(s); var m = Math.floor(s / 60), r = s % 60;
+    return m + ':' + (r < 10 ? '0' : '') + r;
+  }
+  function tmNum(s) { var m = String(s || '').match(/(\d+)/); return m ? Number(m[1]) : null; }
+
+  /** Cuántas series hay escritas debajo de un EVERY sin «X N»: «2 SETS 75%», «SET 1/2/3/4:», «80/83/85/88/90/90%». */
+  function tmSeriesDebajo(lineas, desde) {
+    var suma = 0, maxSet = 0, porc = 0;
+    for (var i = desde; i < lineas.length; i++) {
+      var l = lineas[i];
+      if (/^(EVERY|EMOM|E\d+MOM|AMRAP|TIME ?CAP|REST\b|THEN|INTO|[A-Z](\.\d)?\))/.test(l)) break;
+      var a = l.match(/^(\d+)\s*SETS?\s+\d/); if (a) suma += Number(a[1]);
+      var b = l.match(/^SETS?\s+([\d\/]+)\s*:/); if (b) b[1].split('/').forEach(function (x) { maxSet = Math.max(maxSet, Number(x) || 0); });
+      var c = l.match(/^(\d+(?:[.,]\d+)?(?:\/\d+(?:[.,]\d+)?){2,})\s*%/); if (c && !porc) porc = c[1].split('/').length;
+    }
+    return suma || maxSet || porc || null;
+  }
+
+  /** Ejercicio que toca en cada ronda: «1': …», «ODD: … / EVEN: …», «ALTERNANDO A Y B» + «A) …». */
+  function tmEstaciones(lineas, desde) {
+    var min = [], oe = [], abc = [], alt = false;
+    for (var i = desde; i < lineas.length; i++) {
+      var l = lineas[i];
+      if (/^(EVERY|EMOM|E\d+MOM|AMRAP|TIME ?CAP|REST\b)/.test(l) && i > desde) break;
+      var m;
+      if ((m = l.match(/^(\d+)\s*'\s*:\s*(.+)/))) min[Number(m[1]) - 1] = m[2];
+      else if ((m = l.match(/^(ODD|EVEN|IMPAR|PAR)\s*:\s*(.+)/))) oe[/ODD|IMPAR/.test(m[1]) ? 0 : 1] = m[1] + ': ' + m[2];
+      else if (/ALTERNANDO/.test(l)) alt = true;
+      else if (alt && (m = l.match(/^([A-F])\)\s*(.+)/))) abc.push(m[1] + ') ' + m[2]);
+    }
+    if (min.length && min.every(Boolean)) return min;
+    if (oe[0] && oe[1]) return oe;
+    if (abc.length > 1) return abc;
+    return null;
+  }
+
+  function detectarTimer(texto, etiqueta) {
+    var cab = String(etiqueta || '').toUpperCase().replace(/^[A-Z](\.\d)?\s*·\s*/, '').trim();
+    var lineas = ((cab && /\d\s*('|")|SETS?|NO TIME/.test(cab) ? cab + '\n' : '') + String(texto || '').toUpperCase()).split('\n').map(function (l) { return l.replace(/\s+/g, ' ').trim(); });
+    var g = [], total = null, notas = [], hayCuenta = false, forTime = false, restNeeded = false, repetir = 1, saltar = false;
+    var setsCtx = null; // { series, pasos:[], tap:[] } mientras se leen ejercicios bajo «N SETS»
+    var capRonda = null;
+    lineas.forEach(function (l) { var m = l.match(/TIME ?CAP PER ROUND\s*(.+)/); if (m) capRonda = tmSeg(m[1]); });
+    function cerrarTap() { if (setsCtx && setsCtx.tap.length) { setsCtx.pasos.push({ t: 'tap', txt: setsCtx.tap.join(' · ') }); setsCtx.tap = []; } }
+    function cerrarSets(descanso) {
+      if (!setsCtx) return;
+      cerrarTap();
+      if (descanso != null && !hayCuenta && setsCtx.pasos.length) g.push({ k: 'series', series: setsCtx.series, descanso: descanso, pasos: setsCtx.pasos });
+      setsCtx = null;
+    }
+    for (var i = 0; i < lineas.length; i++) {
+      var l = lineas[i], m;
+      if (!l) { if (setsCtx && !setsCtx.pasos.length && !setsCtx.tap.length) setsCtx = null; if (saltar && !lineas[i + 1]) saltar = false; continue; }
+      if (/^ADAPTACI/.test(l)) break;                                   // lo que sigue es otra versión
+      if (/^ISOM[EÉ]TRIC/.test(l) || /^DIN[AÁ]MICA$/.test(l)) { setsCtx = null; saltar = true; continue; }
+      if (saltar) { if (/^[A-Z](\.\d)?\)/.test(l)) saltar = false; else continue; }
+      if (/^[*(]/.test(l) || /^RIR|^RPE|^\d+(?:[.,]\d+)?(?:\/\d+(?:[.,]\d+)?)*\s*%/.test(l)) continue;
+      var tot = l.match(/\((\d+\s*'(?:\s*\d+\s*")?)\)/);
+      if (tot && /METCON|VENTANA|TIME ?CAP\/AMRAP|AMRAP\/TIME/.test(l)) total = tmSeg(tot[1]);
+      if (/FOR TIME|NO TIME ?CAP/.test(l)) forTime = true;
+      var rp = l.match(/^(?:[A-Z ]*METCON\s*:?\s*)?(\d+)\s*SETS?\s*\((\d+\s*'(?:\s*\d+\s*")?)\)/);
+      if (rp) { repetir = Number(rp[1]); total = tmSeg(rp[2]); continue; }
+      if (/REST NEEDED/.test(l)) { restNeeded = true; setsCtx = null; continue; }
+      // ON / OFF
+      if ((m = l.match(/((?:\d+\s*(?:'|")\s*\+?\s*)+)\s*ON\s*X?\s*(\d+\s*(?:'|")(?:\s*\d+\s*")?)\s*OFF(?:\s*X?\s*(\d+)\s*(?:SETS?|ROUNDS?))?/))) {
+        var on = 0; m[1].replace(/(\d+)\s*('|")/g, function (_, n, u) { on += Number(n) * (u === "'" ? 60 : 1); return _; });
+        var rondas = m[3] ? Number(m[3]) : (setsCtx ? setsCtx.series : tmNum((lineas[i + 1] || '').match(/^\d+\s*SETS?/) ? lineas[i + 1] : ''));
+        if (!rondas) { var mins = 0; for (var q = i + 1; q < lineas.length && !/^ADAPTACI/.test(lineas[q]); q++) if (/^\d+\s*'\s*:/.test(lineas[q])) mins++; rondas = mins || null; }
+        g.push({ k: 'onoff', on: on, off: tmSeg(m[2]), rondas: rondas || null, etiqueta: /AMRAP/.test(l) ? 'AMRAP' : 'ON/OFF' });
+        hayCuenta = true; setsCtx = null; continue;
+      }
+      // EMOM / E2MOM
+      if ((m = l.match(/\bE(\d*)MOM\s*(\d+\s*'(?:\s*\d+\s*")?)/))) {
+        var cada = (Number(m[1]) || 1) * 60, dur = tmSeg(m[2]);
+        var ge = { k: 'intervalo', cada: cada, rondas: Math.max(1, Math.round(dur / cada)), etiqueta: m[1] ? 'E' + m[1] + 'MOM' : 'EMOM' };
+        var es = tmEstaciones(lineas, i + 1); if (es) ge.estaciones = es;
+        g.push(ge);
+        hayCuenta = true; setsCtx = null; continue;
+      }
+      // EVERY T (X N)
+      if ((m = l.match(/\bEVERY\s+(.+)/)) && tmSeg(m[1]) != null) {
+        var cadaE = tmSeg(m[1]), n = null, dePie = false;
+        var x = m[1].match(/X\s*(\d+)(?:\s*\/\s*\d+)?\s*(?:SETS?|ROUNDS?|RONDAS?)?/);
+        if (x) n = Number(x[1]);
+        else {
+          var sig = (lineas[i + 1] || '').match(/^(\d+)\s*(?:SETS?|ROUNDS?)\b\s*$/);
+          if (sig) { n = Number(sig[1]); dePie = true; }
+          else n = tmSeriesDebajo(lineas, i + 1);
+        }
+        var gr = { k: 'intervalo', cada: cadaE, rondas: n, etiqueta: 'EVERY ' + tmFmt(cadaE) };
+        if (dePie) gr.dePie = true;
+        if (capRonda) gr.cap = capRonda;
+        var esE = tmEstaciones(lineas, i + 1); if (esE) gr.estaciones = esE;
+        g.push(gr); hayCuenta = true; setsCtx = null; continue;
+      }
+      // AMRAP T / TIME CAP T (sin «PER ROUND»)
+      if ((m = l.match(/\b(AMRAP|TIME ?CAP)\s*:?\s*(\d+\s*(?:'|")(?:\s*\d+\s*")?)/)) && !/PER ROUND/.test(l)) {
+        g.push({ k: 'cuenta', dur: tmSeg(m[2]), etiqueta: m[1] === 'AMRAP' ? 'AMRAP' : 'TIME CAP' });
+        hayCuenta = true; setsCtx = null; continue;
+      }
+      // N SETS (abre contexto de series; «4X5 …» también)
+      if ((m = l.match(/^(\d+)(?:\/\d+)?\s*(?:SETS?|ROUNDS?)\b/)) || (m = l.match(/^(\d+)\s*X\s*\d+(?:\+\d+)?\s+[A-Z]/))) {
+        if (setsCtx && !hayCuenta) { cerrarTap(); cerrarSets(setsCtx.pasos.some(function (x) { return x.t === 'pausa'; }) ? 0 : null); }
+        if (!hayCuenta) { setsCtx = { series: Number(m[1]), pasos: [], tap: [] }; if (!/SETS?|ROUNDS?/.test(l.slice(0, 12))) setsCtx.tap.push(l); }
+        continue;
+      }
+      // REST
+      if ((m = l.match(/^REST\s+(.+)/))) {
+        var t = tmSeg(m[1]);
+        if (t == null) continue;
+        if (/PER (SET|ROUND|SERIE|RONDA)/.test(l)) { cerrarSets(t); continue; }
+        if (setsCtx) {
+          // descanso dentro de la serie; si es el último REST del bloque de series, es el descanso entre series
+          var masAbajo = false;
+          for (var j = i + 1; j < lineas.length && lineas[j]; j++) if (/^REST\b/.test(lineas[j])) masAbajo = true;
+          var hayEjDespues = !!(lineas[i + 1] && !/^(REST|THEN|INTO)/.test(lineas[i + 1]));
+          if (!masAbajo && !hayEjDespues) {
+            if (setsCtx.series === 1) { cerrarSets(0); if (!hayCuenta) g.push({ k: 'descanso', dur: t }); }
+            else cerrarSets(t);
+            continue;
+          }
+          cerrarTap(); setsCtx.pasos.push({ t: 'pausa', s: t }); continue;
+        }
+        if (g.length) g.push({ k: 'descanso', dur: t });
+        continue;
+      }
+      if (/^(THEN|INTO)\b/.test(l)) continue;
+      // línea de ejercicio dentro de series
+      if (setsCtx) {
+        var est = l.match(/^((?:\d+\s*(?:'|")\s*\+?\s*)+)\s*(?!ON\b)([A-Z].*)/);
+        var ult = setsCtx.pasos[setsCtx.pasos.length - 1];
+        if (est) {
+          var sEst = 0; est[1].replace(/(\d+)\s*('|")/g, function (_, n, u) { sEst += Number(n) * (u === "'" ? 60 : 1); return _; });
+          cerrarTap(); setsCtx.pasos.push({ t: 'tiempo', s: sEst, txt: est[2] });
+        } else if (!/^\d/.test(l) && !setsCtx.tap.length && ult && ult.t === 'tiempo') ult.txt += ' ' + l;
+        else setsCtx.tap.push(l);
+      }
+    }
+    if (setsCtx && !hayCuenta) { cerrarTap(); cerrarSets(setsCtx.pasos.some(function (x) { return x.t === 'pausa'; }) ? 0 : null); }
+    // «METCON: AMRAP 14'» que contiene «TIME CAP 2' → AMRAP 10' → TIME CAP 2'»: el primero es el total
+    if (g.length > 2 && g[0].k === 'cuenta' && tmTotal(g.slice(1)) === g[0].dur) { total = g[0].dur; g = g.slice(1); }
+    if (repetir > 1 && g.length) notas.push('Se repite ' + repetir + ' veces');
+    // descansos sueltos al final no sirven
+    while (g.length && g[g.length - 1].k === 'descanso') g.pop();
+    while (g.length && g[0].k === 'descanso') g.shift();
+    if (!g.length && forTime && !restNeeded) g.push({ k: 'crono', etiqueta: 'FOR TIME' });
+    // comprobación con el total que escribe Gabi, p. ej. «VENTANAS (14')» o «(16'30")»
+    var conf = 'alta';
+    if (g.some(function (x) { return (x.k === 'intervalo' || x.k === 'onoff') && !x.rondas; })) conf = 'revisar';
+    if (total) {
+      var s = tmTotal(g) * repetir;
+      if (s !== total) {
+        var alt = g.map(function (x) { return x.dePie ? Object.assign({}, x, { rondas: 1 }) : x; });
+        if (tmTotal(alt) * repetir === total) { g = alt; notas.push('Ajustado al total ' + tmFmt(total)); }
+        else { conf = 'revisar'; notas.push('No cuadra con el total ' + tmFmt(total) + ' (sale ' + tmFmt(s) + ')'); }
+      } else notas.push('Cuadra con el total ' + tmFmt(total));
+    }
+    g.forEach(function (x) { delete x.dePie; });
+    return g.length ? { grupos: g, repetir: repetir, total: tmTotal(g) * repetir, confianza: conf, notas: notas } : null;
+  }
+
+  /** Duración fija en segundos (los pasos «hecho» de las series no cuentan). */
+  function tmTotal(g) {
+    return g.reduce(function (a, x) {
+      if (x.k === 'intervalo') return a + (x.cada || 0) * (x.rondas || 0);
+      if (x.k === 'cuenta' || x.k === 'descanso') return a + (x.dur || 0);
+      if (x.k === 'onoff') return a + ((x.on || 0) + (x.off || 0)) * (x.rondas || 0);
+      if (x.k === 'series') return a + (x.series || 0) * x.pasos.reduce(function (b, p) { return b + (p.s || 0); }, 0) + Math.max(0, (x.series || 0) - 1) * (x.descanso || 0);
+      return a;
+    }, 0);
+  }
+
+  function tmResumen(x) {
+    if (x.k === 'intervalo') return (x.etiqueta || 'EVERY') + ' · ' + (x.rondas || '?') + ' × ' + tmFmt(x.cada) + (x.cap ? ' (cap ' + tmFmt(x.cap) + ')' : '');
+    if (x.k === 'cuenta') return x.etiqueta + ' ' + tmFmt(x.dur);
+    if (x.k === 'onoff') return (x.rondas || '?') + ' × (' + tmFmt(x.on) + ' on + ' + tmFmt(x.off) + ' off)';
+    if (x.k === 'descanso') return 'Descanso ' + tmFmt(x.dur);
+    if (x.k === 'series') return x.series + ' series · descanso ' + tmFmt(x.descanso) + (x.pasos.some(function (p) { return p.t !== 'tap'; }) ? ' · ' + x.pasos.filter(function (p) { return p.t !== 'tap'; }).map(function (p) { return (p.t === 'pausa' ? 'pausa ' : '') + tmFmt(p.s); }).join(' + ') : '');
+    if (x.k === 'crono') return 'Cronómetro (' + (x.etiqueta || 'FOR TIME') + ')';
+    return '';
+  }
+
+  // =====================================================================
+  //  TIMER · botón por parte → «Tu timer» (editar y confirmar) → reloj a pantalla completa
+  // =====================================================================
+  var TM = { reg: [], run: null };
+  function tmHash(s) { var h = 0; s = String(s); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+  function tmClave(r) { return 'pa-tm-' + r.iso + '|' + r.n + '|' + tmHash(r.texto); }
+  function tmCorto(det) {
+    var g = det.grupos, s = g.length === 1 ? tmResumen(g[0]) : g.length + ' tramos · ' + tmFmt(det.total);
+    return (det.repetir > 1 ? det.repetir + '× ' : '') + s;
+  }
+  /** Botón ▶ Timer para una parte (o '' si Gabi no indicó tiempo). */
+  function tmBoton(p, b, x) {
+    var det = detectarTimer(p.texto, p.etiqueta);
+    if (!det || !x) return '';
+    var ver = ''; (b.variantes || []).forEach(function (v) { if ((v.partes || []).indexOf(p) >= 0) ver = v.nombre; });
+    var r = { det: det, texto: p.texto, etq: p.etiqueta, iso: x.iso, n: b.n, titulo: b.titulo, version: ver, metcon: esMetcon(b) };
+    var guardado = leer(tmClave(r)); if (guardado && guardado.grupos) r.propio = guardado;
+    var i = TM.reg.push(r) - 1;
+    return '<button class="tm-btn" type="button" data-tm="' + i + '"><span class="tm-play" aria-hidden="true">▶</span><span>Timer</span><span class="tm-sum">' + esc(tmCorto(r.propio || det)) + '</span></button>';
+  }
+
+  // ---------- editor ----------
+  function tmCopia(o) { return JSON.parse(JSON.stringify(o)); }
+  function tmCampoDur(id, s) {
+    s = Math.max(0, Math.round(s || 0));
+    return '<span class="tm-dur"><input data-d="' + id + '-m" inputmode="numeric" value="' + Math.floor(s / 60) + '" aria-label="minutos"><b>:</b>' +
+      '<input data-d="' + id + '-s" inputmode="numeric" value="' + (s % 60 < 10 ? '0' : '') + (s % 60) + '" aria-label="segundos"></span>';
+  }
+  function tmCampoNum(id, n, lbl) { return '<label class="tm-n">' + lbl + '<input data-n="' + id + '" inputmode="numeric" value="' + (n == null ? '' : n) + '" placeholder="?"></label>'; }
+  function tmFilaHtml(g, i) {
+    var h = '<div class="tm-row" data-row="' + i + '"><div class="tm-row-h"><b>' + esc(
+      g.k === 'intervalo' ? g.etiqueta || 'EVERY' : g.k === 'cuenta' ? g.etiqueta : g.k === 'onoff' ? 'ON / OFF' : g.k === 'descanso' ? 'Descanso' : g.k === 'series' ? 'Series' : 'Cronómetro') +
+      '</b><button class="icon-btn sm" type="button" data-tm-quitar="' + i + '" aria-label="Quitar">×</button></div><div class="tm-row-b">';
+    if (g.k === 'intervalo') h += tmCampoNum(i + '-rondas', g.rondas, 'Rondas') + '<span class="tm-x">×</span><span class="tm-l">cada</span>' + tmCampoDur(i + '-cada', g.cada) +
+      (g.cap ? '<span class="tm-l">cap</span>' + tmCampoDur(i + '-cap', g.cap) : '');
+    if (g.k === 'cuenta' || g.k === 'descanso') h += tmCampoDur(i + '-dur', g.dur);
+    if (g.k === 'onoff') h += tmCampoNum(i + '-rondas', g.rondas, 'Rondas') + '<span class="tm-l">on</span>' + tmCampoDur(i + '-on', g.on) + '<span class="tm-l">off</span>' + tmCampoDur(i + '-off', g.off);
+    if (g.k === 'series') {
+      h += tmCampoNum(i + '-series', g.series, 'Series') + '<span class="tm-l">descanso</span>' + tmCampoDur(i + '-descanso', g.descanso);
+      h += '<div class="tm-pasos">' + g.pasos.map(function (p, j) {
+        return '<div>' + (p.t === 'tap' ? '<span class="hint">Pulsas «Hecho»:</span> ' + esc(p.txt) :
+          (p.t === 'pausa' ? '<span class="tm-l">pausa</span>' : '<span class="tm-l">' + esc(p.txt || 'trabajo') + '</span>') + tmCampoDur(i + '-p' + j, p.s)) + '</div>';
+      }).join('') + '</div>';
+    }
+    if (g.k === 'crono') h += '<span class="hint">Cuenta hacia arriba. Al parar, te lleva a apuntar el resultado.</span>';
+    if (g.estaciones) h += '<div class="tm-est">' + g.estaciones.map(function (e, j) { return '<span>' + (j + 1) + ': ' + esc(e) + '</span>'; }).join('') + '</div>';
+    return h + '</div></div>';
+  }
+  function tmLeerEditor(r) {
+    var q = function (sel) { var e = $scrim.querySelector(sel); return e ? e.value : ''; };
+    var dur = function (id) { return (parseInt(q('[data-d="' + id + '-m"]'), 10) || 0) * 60 + (parseInt(q('[data-d="' + id + '-s"]'), 10) || 0); };
+    var num = function (id) { var v = parseInt(q('[data-n="' + id + '"]'), 10); return v > 0 ? v : null; };
+    r.edit.grupos.forEach(function (g, i) {
+      if (g.k === 'intervalo') { g.rondas = num(i + '-rondas'); g.cada = dur(i + '-cada'); if (g.cap) g.cap = dur(i + '-cap'); }
+      if (g.k === 'cuenta' || g.k === 'descanso') g.dur = dur(i + '-dur');
+      if (g.k === 'onoff') { g.rondas = num(i + '-rondas'); g.on = dur(i + '-on'); g.off = dur(i + '-off'); }
+      if (g.k === 'series') { g.series = num(i + '-series') || 1; g.descanso = dur(i + '-descanso'); g.pasos.forEach(function (p, j) { if (p.t !== 'tap') p.s = dur(i + '-p' + j); }); }
+    });
+    var rp = parseInt(q('#tm-rep'), 10); if (r.edit.repetir > 1 || rp > 1) r.edit.repetir = rp > 0 ? rp : 1;
+  }
+  function tmAbrirEditor(i) {
+    var r = TM.reg[i]; if (!r) return;
+    r.edit = tmCopia(r.propio || r.det);
+    tmPintarEditor(r, i);
+  }
+  function tmPintarEditor(r, i) {
+    var e = r.edit, falta = e.grupos.some(function (g) { return (g.k === 'intervalo' || g.k === 'onoff') && !g.rondas; });
+    abrirHoja('<div class="row"><h2>Tu timer</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      '<div class="hint">' + esc(r.n + ' · ' + r.titulo) + (r.etq ? ' · ' + esc(r.etq) : '') + (r.version ? ' · versión ' + esc(nombreVersion(r.version)) : '') + '</div>' +
+      '<details class="tm-orig"><summary>Lo que escribió Gabi</summary><div class="board small">' + esc(r.texto) + '</div></details>' +
+      (e.repetir > 1 ? '<label class="tm-n">Repetir todo<input id="tm-rep" inputmode="numeric" value="' + e.repetir + '"> veces</label>' : '') +
+      '<div id="tm-rows">' + e.grupos.map(tmFilaHtml).join('') + '</div>' +
+      '<div class="tm-add"><button class="btn-ghost sm" type="button" data-tm-add="intervalo">＋ Intervalo</button><button class="btn-ghost sm" type="button" data-tm-add="cuenta">＋ Cuenta atrás</button>' +
+      '<button class="btn-ghost sm" type="button" data-tm-add="descanso">＋ Descanso</button></div>' +
+      '<div class="tm-total" id="tm-total">' + tmTextoTotal(e) + '</div>' +
+      (falta ? '<div class="err">Pon cuántas rondas son (Gabi no lo indicó).</div>' : (r.det.confianza !== 'alta' ? '<div class="err">Revisa los tiempos: ' + esc(r.det.notas.join(' · ')) + '</div>' : '')) +
+      '<div class="two-btn"><button class="btn" type="button" data-tm-reset="' + i + '">Lo de Gabi</button><button class="btn btn-primary" type="button" data-tm-go="' + i + '">Confirmar y empezar</button></div>');
+    $scrim.querySelector('.sheet').oninput = function () { tmLeerEditor(r); document.getElementById('tm-total').textContent = tmTextoTotal(r.edit); };
+  }
+  function tmTextoTotal(e) {
+    var t = tmTotal(e.grupos) * (e.repetir || 1), taps = e.grupos.some(function (g) { return g.k === 'series' || g.k === 'crono'; });
+    return 'Total ' + (taps ? 'aprox. ' : '') + tmFmt(t) + (taps ? ' + lo que tardes en tus series' : '');
+  }
+
+  // ---------- pasos ----------
+  function tmPasos(e) {
+    var out = [], rep = e.repetir || 1;
+    for (var k = 0; k < rep; k++) e.grupos.forEach(function (g, gi) {
+      var pre = rep > 1 ? 'Set ' + (k + 1) + '/' + rep + ' · ' : '';
+      if (g.k === 'intervalo') for (var r = 1; r <= (g.rondas || 0); r++)
+        out.push({ k: 'work', dur: g.cada, tit: pre + (g.etiqueta || 'EVERY'), sub: 'Ronda ' + r + '/' + g.rondas, est: g.estaciones ? g.estaciones[(r - 1) % g.estaciones.length] : '', cap: g.cap });
+      if (g.k === 'cuenta') out.push({ k: 'work', dur: g.dur, tit: pre + g.etiqueta, sub: tmFmt(g.dur) });
+      if (g.k === 'descanso') out.push({ k: 'rest', dur: g.dur, tit: pre + 'Descanso', sub: '' });
+      if (g.k === 'onoff') for (var o = 1; o <= (g.rondas || 0); o++) {
+        out.push({ k: 'work', dur: g.on, tit: pre + (g.etiqueta === 'AMRAP' ? 'AMRAP' : 'ON'), sub: 'Ronda ' + o + '/' + g.rondas });
+        out.push({ k: 'rest', dur: g.off, tit: pre + 'OFF', sub: 'Ronda ' + o + '/' + g.rondas });
+      }
+      if (g.k === 'series') for (var s = 1; s <= g.series; s++) {
+        g.pasos.forEach(function (p) {
+          if (p.t === 'tap') out.push({ k: 'tap', tit: pre + 'Serie ' + s + '/' + g.series, sub: p.txt });
+          else out.push({ k: p.t === 'pausa' ? 'rest' : 'work', dur: p.s, tit: pre + (p.t === 'pausa' ? 'Pausa' : 'Serie ' + s + '/' + g.series), sub: p.t === 'pausa' ? '' : p.txt });
+        });
+        if (s < g.series && g.descanso) out.push({ k: 'rest', dur: g.descanso, tit: pre + 'Descanso', sub: 'Siguiente: serie ' + (s + 1) + '/' + g.series });
+      }
+      if (g.k === 'crono') out.push({ k: 'up', tit: g.etiqueta || 'FOR TIME', sub: 'Pulsa «Terminé» al acabar' });
+    });
+    return out.filter(function (p) { return p.k === 'tap' || p.k === 'up' || p.dur > 0; });
+  }
+
+  // ---------- reloj ----------
+  function tmBeep(f, ms) {
+    var R = TM.run; if (!R || !R.ac) return;
+    try {
+      var o = R.ac.createOscillator(), g = R.ac.createGain(), t = R.ac.currentTime;
+      o.frequency.value = f; o.type = 'square'; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000); o.connect(g); g.connect(R.ac.destination); o.start(t); o.stop(t + ms / 1000 + 0.02);
+    } catch (e) {}
+  }
+  function tmVibrar(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+  function tmWake(on) {
+    var R = TM.run;
+    try {
+      if (on && navigator.wakeLock && R && !R.wl) navigator.wakeLock.request('screen').then(function (w) { R.wl = w; }).catch(function () {});
+      if (!on && R && R.wl) { R.wl.release(); R.wl = null; }
+    } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', function () { if (TM.run && document.visibilityState === 'visible' && !TM.run.fin) { TM.run.wl = null; tmWake(true); } });
+
+  function tmEmpezar(i) {
+    var r = TM.reg[i]; if (!r) return;
+    tmLeerEditor(r);
+    if (r.edit.grupos.some(function (g) { return (g.k === 'intervalo' || g.k === 'onoff') && !g.rondas; })) { toast('Pon cuántas rondas son.'); return; }
+    guardar(tmClave(r), r.edit); r.propio = r.edit;
+    var pasos = tmPasos(r.edit);
+    if (!pasos.length) { toast('No hay ningún tramo con tiempo.'); return; }
+    cerrarHoja();
+    var ac = null; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    pasos.unshift({ k: 'rest', dur: 10, tit: 'Prepárate', sub: r.titulo, prep: true });
+    TM.run = { r: r, pasos: pasos, i: 0, ini: performance.now(), pausa: 0, enPausa: null, ac: ac, ultSeg: null, total0: Date.now(), fin: false, capAvisado: false };
+    var el = document.createElement('div'); el.id = 'reloj'; el.className = 'reloj'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Timer');
+    document.body.appendChild(el); document.body.classList.add('con-reloj');
+    tmWake(true); tmPintar(); TM.run.int = setInterval(tmTick, 100);
+  }
+  function tmTranscurrido() { var R = TM.run; return ((R.enPausa || performance.now()) - R.ini - R.pausa) / 1000; }
+  function tmTick() {
+    var R = TM.run; if (!R || R.fin || R.enPausa) return;
+    var p = R.pasos[R.i], t = tmTranscurrido();
+    if (p.k === 'work' || p.k === 'rest') {
+      var resta = p.dur - t, seg = Math.ceil(resta);
+      if (seg !== R.ultSeg) {
+        R.ultSeg = seg;
+        if (seg <= 3 && seg >= 1) tmBeep(880, 120);
+        if (p.cap && !R.capAvisado && t >= p.cap) { R.capAvisado = true; tmBeep(660, 400); tmVibrar([150, 80, 150]); }
+      }
+      if (resta <= 0) return tmSiguiente();
+    }
+    tmPintar(true);
+  }
+  function tmSiguiente() {
+    var R = TM.run;
+    R.i++; R.ini = performance.now(); R.pausa = 0; R.ultSeg = null; R.capAvisado = false;
+    if (R.i >= R.pasos.length) return tmFinal();
+    var p = R.pasos[R.i];
+    tmBeep(p.k === 'rest' ? 520 : 1040, 450); tmVibrar(p.k === 'rest' ? 200 : [250, 100, 250]);
+    tmPintar();
+  }
+  function tmFinal(cronoSeg) {
+    var R = TM.run; R.fin = true; clearInterval(R.int); tmWake(false);
+    tmBeep(1040, 700); tmVibrar([300, 120, 300, 120, 300]);
+    var el = document.getElementById('reloj'); if (!el) return;
+    var total = (Date.now() - R.total0) / 1000 - 10;
+    el.className = 'reloj fin';
+    el.innerHTML = '<div class="rl-top"><span>' + esc(R.r.n + ' · ' + R.r.titulo) + '</span></div><div class="rl-mid"><div class="rl-tit">' + (cronoSeg != null ? 'Tu tiempo' : '¡Terminado!') + '</div>' +
+      '<div class="rl-t">' + tmFmt(cronoSeg != null ? cronoSeg : Math.max(0, total)) + '</div></div><div class="rl-btns">' +
+      (R.r.metcon ? '<button class="btn btn-primary" type="button" data-rl="resultado"' + (cronoSeg != null ? ' data-t="' + Math.round(cronoSeg) + '"' : '') + '>Apuntar resultado</button>' : '') +
+      '<button class="btn" type="button" data-rl="salir">Cerrar</button></div>';
+  }
+  function tmPintar(soloTiempo) {
+    var R = TM.run, el = document.getElementById('reloj'); if (!R || !el) return;
+    var p = R.pasos[R.i], t = tmTranscurrido(), sig = R.pasos[R.i + 1];
+    var grande = p.k === 'up' || p.k === 'tap' ? tmFmt(t) : tmFmt(Math.max(0, Math.ceil(p.dur - t)));
+    var prog = p.dur ? Math.min(1, t / p.dur) : 0;
+    if (soloTiempo && el.querySelector('.rl-t')) {
+      el.querySelector('.rl-t').textContent = grande; var b = el.querySelector('.rl-bar i'); if (b) b.style.width = (prog * 100) + '%';
+      return;
+    }
+    el.className = 'reloj ' + (p.prep ? 'prep' : p.k) + (R.enPausa ? ' pausado' : '');
+    el.innerHTML = '<div class="rl-top"><span>' + esc(R.r.n + ' · ' + R.r.titulo) + '</span><span>' + (R.i) + '/' + (R.pasos.length - 1) + '</span></div>' +
+      '<div class="rl-mid"><div class="rl-tit">' + esc(p.tit) + '</div><div class="rl-sub">' + esc(p.sub || '') + '</div>' +
+      (p.est ? '<div class="rl-est">' + esc(p.est) + '</div>' : '') +
+      '<div class="rl-t">' + grande + '</div>' + (p.dur ? '<div class="rl-bar"><i style="width:' + (prog * 100) + '%"></i></div>' : '') +
+      (p.cap ? '<div class="rl-sub">Time cap a los ' + tmFmt(p.cap) + '</div>' : '') +
+      '<div class="rl-sig">' + (sig ? 'Después: ' + esc(sig.tit) + (sig.dur ? ' · ' + tmFmt(sig.dur) : '') : 'Último tramo') + '</div></div>' +
+      '<div class="rl-btns">' +
+      (p.k === 'tap' ? '<button class="btn btn-primary rl-big" type="button" data-rl="hecho">Hecho ✓</button>' : '') +
+      (p.k === 'up' ? '<button class="btn btn-primary rl-big" type="button" data-rl="termine">Terminé</button>' : '') +
+      '<div class="rl-row"><button class="btn" type="button" data-rl="pausa">' + (R.enPausa ? 'Seguir' : 'Pausa') + '</button>' +
+      '<button class="btn" type="button" data-rl="saltar">Saltar</button><button class="btn" type="button" data-rl="salir">Salir</button></div></div>';
+  }
+  function tmCerrar() {
+    var R = TM.run; if (R) { clearInterval(R.int); tmWake(false); try { if (R.ac) R.ac.close(); } catch (e) {} }
+    TM.run = null; var el = document.getElementById('reloj'); if (el) el.remove(); document.body.classList.remove('con-reloj');
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target, b;
+    if ((b = t.closest('[data-tm]'))) { tmAbrirEditor(+b.dataset.tm); return; }
+    if ((b = t.closest('[data-tm-quitar]'))) { var r1 = TM.reg[+($scrim.querySelector('[data-tm-go]') || {}).dataset.tmGo]; if (!r1) return; tmLeerEditor(r1); r1.edit.grupos.splice(+b.dataset.tmQuitar, 1); tmPintarEditor(r1, TM.reg.indexOf(r1)); return; }
+    if ((b = t.closest('[data-tm-add]'))) {
+      var r2 = TM.reg[+$scrim.querySelector('[data-tm-go]').dataset.tmGo]; tmLeerEditor(r2);
+      var k = b.dataset.tmAdd;
+      r2.edit.grupos.push(k === 'intervalo' ? { k: 'intervalo', cada: 60, rondas: 5, etiqueta: 'EVERY' } : k === 'cuenta' ? { k: 'cuenta', dur: 600, etiqueta: 'CUENTA ATRÁS' } : { k: 'descanso', dur: 60 });
+      tmPintarEditor(r2, TM.reg.indexOf(r2)); return;
+    }
+    if ((b = t.closest('[data-tm-reset]'))) { var r3 = TM.reg[+b.dataset.tmReset]; r3.edit = tmCopia(r3.det); try { localStorage.removeItem(tmClave(r3)); } catch (x) {} r3.propio = null; tmPintarEditor(r3, +b.dataset.tmReset); return; }
+    if ((b = t.closest('[data-tm-go]'))) { tmEmpezar(+b.dataset.tmGo); return; }
+    if ((b = t.closest('[data-rl]'))) {
+      var R = TM.run, a = b.dataset.rl; if (!R) return;
+      if (a === 'salir') { tmCerrar(); return; }
+      if (a === 'pausa') { if (R.enPausa) { R.pausa += performance.now() - R.enPausa; R.enPausa = null; tmWake(true); } else R.enPausa = performance.now(); tmPintar(); return; }
+      if (a === 'saltar' || a === 'hecho') { tmSiguiente(); return; }
+      if (a === 'termine') { var seg = tmTranscurrido(); R.i = R.pasos.length; tmFinal(seg); return; }
+      if (a === 'resultado') {
+        var rr = R.r, tt = b.dataset.t ? textoTiempo({ h: Math.floor(+b.dataset.t / 3600), m: Math.floor(+b.dataset.t % 3600 / 60), s: +b.dataset.t % 60 }) : null;
+        tmCerrar(); S._prefTiempo = tt; abrirResultado(rr.iso, rr.n, rr.version || ''); return;
+      }
+    }
+  });
+
   // ---------- Pedir acceso ----------
   function pantallaSolicitud(email, estado) {
     var cuerpo;
-    if (estado === 'Pendiente') cuerpo = '<p>Tu solicitud de acceso está <b>pendiente</b>. Gabi la revisará pronto; cuando la apruebe, vuelve a abrir la app.</p>';
-    else if (estado === 'Rechazada') cuerpo = '<p>Tu solicitud de acceso no ha sido aprobada. Si crees que es un error, habla con Gabi.</p>';
-    else cuerpo = '<p>Este correo todavía no tiene acceso. Pídelo aquí: Gabi verá tu nombre y tu correo y lo aprobará.</p>' +
-      '<form id="solf" class="field"><label for="sol-n">Nombre y apellidos</label><input id="sol-n" required minlength="3" maxlength="80" autocomplete="name" placeholder="Ej. Ana García López">' +
-      '<label>Sexo (para los rankings)</label><div class="seg" role="group" id="sol-s"><button type="button" data-val="Chico" aria-pressed="false">Chico</button><button type="button" data-val="Chica" aria-pressed="false">Chica</button></div>' +
-      '<label for="sol-m">Mensaje (opcional)</label><input id="sol-m" maxlength="300" placeholder="Ej. Entreno en el box por las tardes">' +
-      '<button class="btn btn-primary" type="submit" id="sol-ok">Pedir acceso</button></form>';
+    if (estado === 'Pendiente') cuerpo = '<p>Tu registro está <b>pendiente</b>. Gabi lo revisará pronto; cuando lo apruebe, vuelve a abrir la app.</p>';
+    else if (estado === 'Rechazada') cuerpo = '<p>Tu registro no ha sido aprobado. Si crees que es un error, habla con Gabi.</p>';
+    else cuerpo = '<p>Este correo todavía no tiene acceso. Regístrate: Gabi verá tu nombre y tu correo y lo aprobará.</p>' +
+      '<form id="solf" class="field"><label for="sol-n">Nombre completo</label><input id="sol-n" required minlength="3" maxlength="80" autocomplete="name" placeholder="Ej. Ana García López">' +
+      '<button class="btn btn-primary" type="submit" id="sol-ok">Enviar registro</button></form>';
     $app.innerHTML = '<section class="login"><div class="brand">Fabrik Program</div><div class="hint">Has entrado como <b>' + esc(email) + '</b></div>' + cuerpo +
       '<button class="btn" id="salir" type="button">Entrar con otra cuenta</button>' + redesHtml() + '</section>';
     document.getElementById('salir').onclick = function () { auth.signOut(); };
-    var f = document.getElementById('solf'), sexo = '';
-    if (f) {
-      document.getElementById('sol-s').onclick = function (ev) {
-        var b = ev.target.closest('[data-val]'); if (!b) return; sexo = b.dataset.val;
-        this.querySelectorAll('button').forEach(function (z) { z.setAttribute('aria-pressed', String(z === b)); });
-      };
-      f.onsubmit = function (ev) {
-        ev.preventDefault();
-        if (!sexo) { toast('Elige chico o chica.'); return; }
-        var b = document.getElementById('sol-ok'); b.disabled = true; b.textContent = 'Enviando…';
-        api({ action: 'solicitar', nombre: val('sol-n'), mensaje: val('sol-m'), sexo: sexo }).then(function (r) {
-          if (r.solicitud === 'Pendiente') pantallaSolicitud(email, 'Pendiente');
-          else throw new Error(r.detalle || r.error);
-        }).catch(function (e) { b.disabled = false; b.textContent = 'Pedir acceso'; toast(mensajeError(e.message)); });
-      };
-    }
+    var f = document.getElementById('solf');
+    if (f) f.onsubmit = function (ev) {
+      ev.preventDefault();
+      var b = document.getElementById('sol-ok'); b.disabled = true; b.textContent = 'Enviando…';
+      api({ action: 'solicitar', nombre: val('sol-n') }).then(function (r) {
+        if (r.solicitud === 'Pendiente') pantallaSolicitud(email, 'Pendiente');
+        else throw new Error(r.detalle || r.error);
+      }).catch(function (e) { b.disabled = false; b.textContent = 'Enviar registro'; toast(mensajeError(e.message)); });
+    };
   }
+
 
   // ---------- hojas ----------
   function abrirHoja(html) {
@@ -1544,8 +2171,11 @@
       var aprobar = b.dataset.resolver === '1', s = (S._solicitudes || [])[+b.dataset.i];
       if (!s || !confirmar(b, aprobar ? '¿Aprobar?' : '¿Rechazar?')) return;
       b.disabled = true;
-      var gsel = document.querySelector('[data-grupo-de="' + b.dataset.i + '"]');
-      api({ action: 'solicitud_resolver', email: s.email, tipo: s.tipo, detalle: s.detalle, aprobar: aprobar, grupo: gsel ? gsel.value : 'Box' }).then(ok).then(function (r) {
+      var gsel = document.querySelector('[data-grupo-de="' + b.dataset.i + '"]'), asel = document.querySelector('[data-acceso-de="' + b.dataset.i + '"]'),
+        esel = document.querySelector('[data-evento-de="' + b.dataset.i + '"]');
+      if (aprobar && asel && asel.value && !(esel && esel.value)) { b.disabled = false; toast('Con «Solo eventos», elige el evento.'); return; }
+      api({ action: 'solicitud_resolver', email: s.email, tipo: s.tipo, detalle: s.detalle, aprobar: aprobar, grupo: gsel ? gsel.value : 'Box',
+        acceso: asel ? asel.value : '', eventos: esel && esel.value ? [esel.value] : [] }).then(ok).then(function (r) {
         S._atletas = null;
         toast(aprobar ? (s.tipo === 'Evento' ? 'Apuntado a ' + s.detalle : 'Aprobada: ya puede entrar') : 'Solicitud rechazada'); pintarSolicitudes(r.solicitudes);
       }).catch(falloApi(b));
@@ -1562,7 +2192,7 @@
   // Tras 5 minutos sin usarla, el primer toque (o volver a la pestaña) busca versión nueva de la app
   // y recarga los datos. Si hay versión nueva, la página se recarga sola una vez (con el service worker
   // «primero red», una recarga basta para ver la última versión).
-  var WEB_VERSION = 'v4 · web 9';
+  var WEB_VERSION = 'v4 · web 11';
   var ultimaActividad = Date.now(), habiaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller), recargando = false;
   function recargarApp() {
     if (recargando) return;
