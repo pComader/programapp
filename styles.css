@@ -409,10 +409,14 @@ button.link{background:none;border:0;padding:0;color:var(--accent);font-weight:6
 .brand.sm{font-size:22px;flex:1}
 .ev-list{display:flex;flex-direction:column;gap:10px}
 /* v4.2 · timer por parte */
-.tm-btn{display:flex;align-items:center;gap:8px;margin-top:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--fg);border-radius:10px;padding:7px 10px;cursor:pointer;max-width:100%;font:inherit;text-align:left}
-.tm-btn .tm-play{flex:none;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-size:11px;padding-left:2px}
-.tm-btn>span:nth-child(2){font-family:var(--f-display);font-weight:800;font-size:15px;text-transform:uppercase;letter-spacing:.03em}
-.tm-sum{font-family:var(--f-board);font-weight:600;font-size:14px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.part.has-tm{display:block}
+.part.has-tm::after{content:"";display:block;clear:both}
+.part.has-tm>.part-lbl{margin-bottom:4px}
+.tm-btn{position:relative;float:right;margin:0 0 6px 12px;width:36px;height:36px;border-radius:50%;border:1.5px solid var(--accent);background:transparent;color:var(--accent);display:grid;place-items:center;padding:0;cursor:pointer;opacity:.85;transition:opacity .15s,background .15s,transform .1s}
+.tm-btn svg{width:16px;height:16px;margin-left:2px}
+.tm-btn:hover,.tm-btn:focus-visible{opacity:1;background:var(--accent);color:var(--accent-ink)}
+.tm-btn:active{transform:scale(.92)}
+.tm-btn.propio::after{content:"";position:absolute;top:1px;right:1px;width:8px;height:8px;border-radius:50%;background:var(--accent);border:2px solid var(--surface)}
 .tm-orig .board{font-size:14px}
 .tm-row{border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
 #tm-rows{display:flex;flex-direction:column;gap:8px}
@@ -432,29 +436,59 @@ button.link{background:none;border:0;padding:0;color:var(--accent);font-weight:6
 .tm-total{font:700 16px var(--f-board);text-transform:uppercase;letter-spacing:.03em}
 /* reloj a pantalla completa */
 body.con-reloj{overflow:hidden}
-.reloj{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;justify-content:space-between;gap:12px;
-  padding:calc(14px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
-  background:#101317;color:#f4f6f8;transition:background .25s}
-.reloj.work{background:#0f2a55}
-.reloj.rest{background:#13432d}
-.reloj.prep{background:#3d2f0a}
-.reloj.tap,.reloj.up{background:#2b1d4a}
-.reloj.fin{background:#101317}
-.reloj.pausado .rl-t{opacity:.45}
-.rl-top{display:flex;justify-content:space-between;gap:10px;font:600 14px var(--f-board);text-transform:uppercase;letter-spacing:.05em;opacity:.8}
-.rl-mid{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:6px;min-height:0}
-.rl-tit{font:800 clamp(28px,8vw,52px)/1 var(--f-display);text-transform:uppercase;letter-spacing:.02em}
-.rl-sub{font:600 clamp(16px,4.5vw,22px) var(--f-board);opacity:.85;max-width:30ch}
-.rl-est{font:700 clamp(18px,5vw,26px) var(--f-board);background:rgba(255,255,255,.12);border-radius:12px;padding:6px 12px}
-.rl-t{font:800 clamp(96px,30vw,220px)/1 var(--f-display);font-variant-numeric:tabular-nums;letter-spacing:.01em}
-.rl-bar{width:min(520px,100%);height:8px;border-radius:8px;background:rgba(255,255,255,.18);overflow:hidden}
-.rl-bar i{display:block;height:100%;background:#fff}
-.rl-sig{font:600 16px var(--f-board);opacity:.75;text-transform:uppercase;letter-spacing:.04em}
+.reloj{--rojo:#ff2b1c;--verde:#20f05a;position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;justify-content:space-between;gap:14px;
+  padding:calc(12px + env(safe-area-inset-top,0px)) max(14px,env(safe-area-inset-right,0px)) calc(14px + env(safe-area-inset-bottom,0px)) max(14px,env(safe-area-inset-left,0px));
+  background:#000;color:#e9ecef}
+.rl-top{display:flex;justify-content:space-between;gap:10px;font:600 13px var(--f-board);text-transform:uppercase;letter-spacing:.06em;color:#8a9097}
+/* la caja del marcador */
+.rl-caja{background:linear-gradient(#0b0b0b,#050505);border:2px solid #1d1d1d;border-radius:14px;padding:14px 12px 12px;box-shadow:inset 0 2px 14px rgba(0,0,0,.9),0 0 0 4px #0e0e0e,0 0 0 5px #262626;
+  display:flex;flex-direction:column;gap:10px;flex:1;justify-content:center;min-height:0}
+.rl-led{display:flex;flex-direction:column;align-items:center;gap:10px;min-height:0}
+.rl-rd{display:flex;align-items:flex-end;gap:8px}
+.rl-rd svg{height:clamp(46px,11vw,80px);width:auto}
+.rl-rd span{font:700 15px var(--f-board);color:var(--verde);opacity:.75;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px}
+.rl-t{width:100%;display:flex;justify-content:center;min-height:0}
+.rl-t svg{width:100%;max-height:34vh;height:auto}
+.led .off{fill:rgba(255,255,255,.045)}
+.led.rojo .on{fill:var(--rojo)} .led.rojo{filter:drop-shadow(0 0 6px rgba(255,43,28,.75)) drop-shadow(0 0 18px rgba(255,43,28,.35))}
+.led.verde .on{fill:var(--verde)} .led.verde{filter:drop-shadow(0 0 6px rgba(32,240,90,.7)) drop-shadow(0 0 16px rgba(32,240,90,.3))}
+.reloj.pausado .rl-t svg{animation:rl-blink 1s steps(2,start) infinite}
+.reloj.fin .rl-t svg{animation:rl-blink .5s steps(2,start) 6}
+@keyframes rl-blink{to{visibility:hidden}}
+.rl-bar{height:6px;border-radius:6px;background:#161616;overflow:hidden}
+.rl-bar i{display:block;height:100%;background:var(--rojo);box-shadow:0 0 8px var(--rojo)}
+.rl-bar.verde i{background:var(--verde);box-shadow:0 0 8px var(--verde)}
+.rl-info{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px}
+.rl-tit{font:800 clamp(24px,7vw,44px)/1 var(--f-display);text-transform:uppercase;letter-spacing:.03em}
+.rl-tit.rojo{color:var(--rojo)} .rl-tit.verde{color:var(--verde)}
+.rl-sub{font:600 clamp(15px,4.2vw,20px) var(--f-board);color:#c7ccd1;max-width:32ch}
+.rl-est{font:700 clamp(17px,4.8vw,24px) var(--f-board);background:#141414;border:1px solid #2a2a2a;border-radius:10px;padding:5px 12px}
+.rl-sig{font:600 14px var(--f-board);color:#6f767d;text-transform:uppercase;letter-spacing:.05em}
 .rl-btns{display:flex;flex-direction:column;gap:8px}
 .rl-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.reloj .btn{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.2);color:#fff}
-.reloj .btn.btn-primary{background:#fff;color:#101317;border-color:#fff}
+.reloj .btn{background:#111;border-color:#2c2c2c;color:#e9ecef}
+.reloj .btn.btn-primary{background:var(--rojo);border-color:var(--rojo);color:#fff}
+.reloj.rest .btn.btn-primary{background:var(--verde);border-color:var(--verde);color:#000}
 .rl-big{font-size:22px;padding:18px}
+/* horizontal: el marcador ocupa casi toda la pantalla, info y botones a la derecha */
+@media (orientation:landscape) and (max-height:600px){
+  .reloj{display:grid;grid-template-columns:1fr minmax(170px,26%);grid-template-rows:auto 1fr auto;gap:8px 14px;padding-top:calc(8px + env(safe-area-inset-top,0px));padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+  .rl-top{grid-column:1/-1}
+  .rl-caja{grid-column:1;grid-row:2/4;padding:10px 14px}
+  .rl-led{flex-direction:row;align-items:center;justify-content:center;gap:18px}
+  .rl-rd{flex-direction:column;align-items:center;gap:2px}
+  .rl-rd svg{height:22vh}
+  .rl-t{width:auto;flex:1}
+  .rl-t svg{max-height:58vh;width:100%}
+  .rl-info{grid-column:2;grid-row:2;justify-content:center;align-self:center}
+  .rl-tit{font-size:clamp(18px,3.2vw,30px);overflow-wrap:anywhere}
+  .rl-sub,.rl-est{font-size:15px}
+  .rl-sig{font-size:12px}
+  .rl-btns{grid-column:2;grid-row:3}
+  .rl-row{grid-template-columns:1fr 1fr 1fr;gap:6px}
+  .rl-row .btn{padding:10px 4px;font-size:14px}
+  .rl-big{font-size:18px;padding:12px}
+}
 @media (prefers-reduced-motion:reduce){.reloj{transition:none}}
 /* v4.2 · seguimiento */
 .seg-btn{justify-content:space-between;flex-wrap:wrap;text-align:left}
@@ -469,3 +503,8 @@ body.con-reloj{overflow:hidden}
 .seg-tag{color:var(--rpe-high);text-transform:uppercase;font-size:11px;letter-spacing:.06em}
 .res.seg{border-color:color-mix(in srgb,var(--rpe-high) 50%,var(--line))}
 .btn.sm{width:auto;padding:6px 12px;font-size:14px}
+/* avisos · atletas concretos */
+.ind-box{border:1px solid var(--line);border-radius:12px;padding:10px;margin:6px 0 4px;background:var(--surface-2)}
+.ind-box .hint{margin-bottom:6px}
+.results .res.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.results .res.on b::before{content:"✓ ";color:var(--accent)}

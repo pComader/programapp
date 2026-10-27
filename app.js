@@ -416,8 +416,9 @@
     function parte(p) {
       var ctx = { bloque: ctxB.bloque, desdePower: ctxB.desdePower, parte: levantamiento(p.texto) || levantamiento(p.etiqueta) };
       var etq = p.tipo === 'adapt' ? '' : p.etiqueta;
-      return '<div class="part">' + (etq ? '<div class="part-lbl">' + esc(etq) + '</div>' : '') +
-        (p.texto ? '<div class="board' + (p.tipo !== 'main' ? ' small' : '') + '">' + pizarra(p.texto, ctx) + '</div>' : '') + tmBoton(p, b, x) + '</div>';
+      var tm = tmBoton(p, b, x);
+      return '<div class="part' + (tm ? ' has-tm' : '') + '">' + tm + (etq ? '<div class="part-lbl">' + esc(etq) + '</div>' : '') +
+        (p.texto ? '<div class="board' + (p.tipo !== 'main' ? ' small' : '') + '">' + pizarra(p.texto, ctx) + '</div>' : '') + '</div>';
     }
     var prep = b.partes.filter(function (p) { return p.tipo === 'prep'; });
     var main = b.partes.filter(function (p) { return p.tipo === 'main'; });
@@ -812,7 +813,8 @@
       var q = norm(document.getElementById(contenedorId + '-q').value).trim();
       var f = lista.filter(function (a) { return !q || norm(a.nombre).indexOf(q) >= 0 || norm(a.email).indexOf(q) >= 0; }).slice(0, 12);
       document.getElementById(contenedorId + '-r').innerHTML = f.length ? f.map(function (a) {
-        return '<button type="button" class="res' + (a.seguimiento ? ' seg' : '') + '" data-e="' + esc(a.email) + '"><b>' + esc(a.nombre) + '</b><span>' + esc(a.email) + '</span>' +
+        var on = opciones && opciones.marcado && opciones.marcado(a);
+        return '<button type="button" class="res' + (a.seguimiento ? ' seg' : '') + (on ? ' on' : '') + '" aria-pressed="' + (on ? 'true' : 'false') + '" data-e="' + esc(a.email) + '"><b>' + esc(a.nombre) + '</b><span>' + esc(a.email) + '</span>' +
           '<span class="chip">' + (a.seguimiento ? '<b class="seg-tag">Seguimiento</b> · ' : '') + esc(a.grupo || '—') + (a.activo === false ? ' · desactivado' : '') + '</span></button>';
       }).join('') : '<div class="hint">Nadie coincide con la búsqueda.</div>';
     }
@@ -825,11 +827,12 @@
       pintar();
     }).catch(function (e) { document.getElementById(contenedorId + '-r').innerHTML = '<div class="err">' + esc(mensajeError(e.message)) + '</div>'; });
     document.getElementById(contenedorId + '-q').oninput = pintar;
+    cont._pintar = function () { if (lista.length) pintar(); };
     cont.onclick = function (ev) {
       var b = ev.target.closest('.res');
       if (b) {
         var a = lista.filter(function (x) { return x.email === b.dataset.e; })[0];
-        if (opciones && opciones.sinConfirmar) { alElegir(a); return; }
+        if (opciones && opciones.sinConfirmar) { alElegir(a); cont._pintar(); return; }
         document.getElementById(contenedorId + '-r').innerHTML = '<div class="confirm"><div class="part-lbl">¿Es este atleta?</div>' +
           '<div class="confirm-name">' + esc(a.nombre) + '</div><div>' + esc(a.email) + '</div><div class="hint">Grupo: ' + esc(a.grupo || '—') + ' · ' + esc(a.rol) + (a.activo === false ? ' · desactivado' : '') + '</div>' +
           '<div class="two-btn"><button type="button" class="btn" data-cancelar>Cancelar</button><button type="button" class="btn btn-primary" data-confirmar>Confirmar</button></div></div>';
@@ -861,12 +864,22 @@
     var l = (S.data.eventos || []).slice().sort(function (a, b) { return (a.pasado - b.pasado) || (a.inicio < b.inicio ? -1 : 1); });
     el.innerHTML = l.length ? l.map(function (e) {
       return '<div class="evc' + (e.pasado ? ' pasado' : '') + '"><div class="evc-top"><span class="ev-tipo">' + esc(e.tipo) + '</span><b>' + esc(e.nombre) + '</b></div>' +
-        '<div class="hint">' + esc(cuandoEvento(e)) + ' · ' + esc(e.para) + (e.aviso ? ' · aviso al entrar' : '') + ' · ' + (e.participantes || []).length + ' atleta' + ((e.participantes || []).length === 1 ? '' : 's') + '</div>' +
+        '<div class="hint">' + esc(cuandoEvento(e)) + ' · ' + esc(textoPara(e.para)) + (e.aviso ? ' · aviso al entrar' : '') + ' · ' + (e.participantes || []).length + ' atleta' + ((e.participantes || []).length === 1 ? '' : 's') + '</div>' +
         '<div class="evc-acc"><button class="btn-ghost" type="button" data-ev-edit="' + esc(e.id) + '">Editar</button>' +
         '<button class="btn-ghost" type="button" data-ev-part="' + esc(e.id) + '">Atletas</button>' +
         '<button class="btn-ghost" type="button" data-ev-nota="' + esc(e.id) + '">Nota</button>' +
         '<button class="btn-ghost" type="button" data-ev-del="' + esc(e.id) + '">Retirar</button></div></div>';
     }).join('') : '<div class="hint">Todavía no hay eventos.</div>';
+  }
+  function emailsPara(p) { return String(p || '').indexOf('@') >= 0 ? String(p).toLowerCase().split(/[,;\s]+/).filter(function (x) { return x.indexOf('@') > 0; }) : []; }
+  function atletaPorEmail(em) {
+    var l = (S._atletas || []).concat(S.data.atletas || []);
+    return l.filter(function (a) { return a.email === em; })[0] || { email: em, nombre: em.split('@')[0] };
+  }
+  function textoPara(p) {
+    var ems = emailsPara(p); if (!ems.length) return p;
+    var n = ems.map(function (em) { return atletaPorEmail(em).nombre.split(' ')[0]; });
+    return n.length > 3 ? n.slice(0, 3).join(', ') + ' y ' + (n.length - 3) + ' más' : n.join(', ');
   }
   function eventoPorId(id) { return (S.data.eventos || []).filter(function (e) { return e.id === id; })[0]; }
   function abrirFormEvento(e) {
@@ -874,7 +887,9 @@
     abrirHoja('<div class="row"><h2>' + (e.id ? 'Editar evento' : e.tipo === 'Aviso' ? 'Nuevo aviso' : 'Nuevo evento') + '</h2><button class="btn-ghost" type="button" id="evf-volver">‹ Volver</button></div>' +
       '<form id="evf" class="avf"><label for="ef-n">Nombre</label><input id="ef-n" maxlength="60" required placeholder="Ej. Alhambra Games 2027 · Toma de marcas viernes" value="' + esc(e.nombre || '') + '">' +
       '<div class="two"><div><label for="ef-t">Tipo</label><select id="ef-t">' + op(TIPOS_EVENTO, e.tipo || 'Competición') + '</select></div>' +
-      '<div><label for="ef-p">Para</label><select id="ef-p">' + op(['Todos', 'Participantes', 'Box', 'Individual', 'Otro', 'Coach'], e.para || 'Participantes') + '</select></div></div>' +
+      '<div><label for="ef-p">Para</label><select id="ef-p">' + op(['Todos', 'Participantes', 'Box', 'Individual', 'Otro', 'Coach'], emailsPara(e.para).length ? 'Individual' : e.para || 'Participantes') + '</select></div></div>' +
+      '<div id="ef-ind" class="ind-box" hidden><div class="hint">Busca y toca los atletas que quieras (toca otra vez para quitar). Si no eliges a nadie, va para todo el grupo Individual.</div>' +
+      '<div id="ef-chips" class="chips-sel"></div><div id="ef-bus"></div></div>' +
       '<div class="two"><div><label for="ef-i">Inicio</label><input id="ef-i" type="date" required value="' + esc(e.inicio || '') + '"></div>' +
       '<div><label for="ef-f">Fin (si dura más de un día)</label><input id="ef-f" type="date" value="' + esc(e.fin && e.fin !== e.inicio ? e.fin : '') + '"></div></div>' +
       '<div class="two"><div><label for="ef-h">Hora (opcional)</label><input id="ef-h" type="time" value="' + esc(e.hora || '') + '"></div>' +
@@ -884,15 +899,35 @@
       '<label class="chk"><input type="checkbox" id="ef-a"' + (e.aviso ? ' checked' : '') + '> Aviso al entrar en la app (cada día entre inicio y fin, hasta que lo marquen como visto)</label>' +
       '<button class="btn btn-primary" type="submit" id="ef-ok">Guardar</button></form>');
     document.getElementById('evf-volver').onclick = abrirEventosCoach;
+    var ind = {}, busOk = false;
+    emailsPara(e.para).forEach(function (em) { ind[em] = atletaPorEmail(em); });
+    function chipsInd() {
+      var ks = Object.keys(ind);
+      document.getElementById('ef-chips').innerHTML = ks.length ? ks.map(function (k) { return '<button type="button" class="chip-x" data-quitar="' + esc(k) + '">' + esc(ind[k].nombre) + ' ×</button>'; }).join('') :
+        '<span class="hint">Nadie elegido → todo el grupo Individual.</span>';
+      var bus = document.getElementById('ef-bus'); if (bus && bus._pintar) bus._pintar();
+    }
+    function verInd() {
+      var on = val('ef-p') === 'Individual';
+      document.getElementById('ef-ind').hidden = !on;
+      if (on && !busOk) {
+        busOk = true; chipsInd();
+        buscadorAtletas('ef-bus', function (a) { if (ind[a.email]) delete ind[a.email]; else ind[a.email] = a; chipsInd(); },
+          { soloActivos: true, sinConfirmar: true, marcado: function (a) { return !!ind[a.email]; } });
+      }
+    }
+    document.getElementById('ef-chips').onclick = function (ev) { var b = ev.target.closest('[data-quitar]'); if (b) { delete ind[b.dataset.quitar]; chipsInd(); } };
+    document.getElementById('ef-p').onchange = verInd; verInd();
     document.getElementById('ef-t').onchange = function () {
       var t = this.value;
       if (t === 'Aviso' || t === 'Inscripción') document.getElementById('ef-a').checked = true;
-      if (t === 'Competición') document.getElementById('ef-p').value = 'Participantes';
+      if (t === 'Competición') { document.getElementById('ef-p').value = 'Participantes'; verInd(); }
     };
+    function paraFinal() { var p = val('ef-p'), ks = Object.keys(ind); return p === 'Individual' && ks.length ? ks.join(', ') : p; }
     document.getElementById('evf').onsubmit = function (ev) {
       ev.preventDefault();
       var b = document.getElementById('ef-ok'); b.disabled = true; b.textContent = 'Guardando…';
-      api({ action: 'evento_guardar', evento: { id: e.id, nombre: val('ef-n'), tipo: val('ef-t'), para: val('ef-p'), inicio: val('ef-i'), fin: val('ef-f'), hora: val('ef-h'),
+      api({ action: 'evento_guardar', evento: { id: e.id, nombre: val('ef-n'), tipo: val('ef-t'), para: paraFinal(), inicio: val('ef-i'), fin: val('ef-f'), hora: val('ef-h'),
         lugar: val('ef-l'), enlace: val('ef-u'), descripcion: val('ef-d'), aviso: document.getElementById('ef-a').checked } }).then(function (r) {
         if (!r.ok) throw new Error(r.detalle || r.error);
         S.data.eventos = r.eventos; toast('Evento guardado');
@@ -1822,7 +1857,9 @@
     var r = { det: det, texto: p.texto, etq: p.etiqueta, iso: x.iso, n: b.n, titulo: b.titulo, version: ver, metcon: esMetcon(b) };
     var guardado = leer(tmClave(r)); if (guardado && guardado.grupos) r.propio = guardado;
     var i = TM.reg.push(r) - 1;
-    return '<button class="tm-btn" type="button" data-tm="' + i + '"><span class="tm-play" aria-hidden="true">▶</span><span>Timer</span><span class="tm-sum">' + esc(tmCorto(r.propio || det)) + '</span></button>';
+    var sum = tmCorto(r.propio || det);
+    return '<button class="tm-btn' + (r.propio ? ' propio' : '') + '" type="button" data-tm="' + i + '" aria-label="Timer · ' + esc(sum) + '" title="Timer · ' + esc(sum) + '">' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5v11l9-5.5z" fill="currentColor"/></svg></button>';
   }
 
   // ---------- editor ----------
@@ -1976,25 +2013,63 @@
     var el = document.getElementById('reloj'); if (!el) return;
     var total = (Date.now() - R.total0) / 1000 - 10;
     el.className = 'reloj fin';
-    el.innerHTML = '<div class="rl-top"><span>' + esc(R.r.n + ' · ' + R.r.titulo) + '</span></div><div class="rl-mid"><div class="rl-tit">' + (cronoSeg != null ? 'Tu tiempo' : '¡Terminado!') + '</div>' +
-      '<div class="rl-t">' + tmFmt(cronoSeg != null ? cronoSeg : Math.max(0, total)) + '</div></div><div class="rl-btns">' +
+    var segF = cronoSeg != null ? cronoSeg : Math.max(0, total);
+    el.innerHTML = '<div class="rl-top"><span>' + esc(R.r.n + ' · ' + R.r.titulo) + '</span></div>' +
+      '<div class="rl-caja">' + tmPanel(segF, null, 'rojo') + '</div>' +
+      '<div class="rl-info"><div class="rl-tit rojo">' + (cronoSeg != null ? 'Tu tiempo' : '¡Terminado!') + '</div></div><div class="rl-btns">' +
       (R.r.metcon ? '<button class="btn btn-primary" type="button" data-rl="resultado"' + (cronoSeg != null ? ' data-t="' + Math.round(cronoSeg) + '"' : '') + '>Apuntar resultado</button>' : '') +
       '<button class="btn" type="button" data-rl="salir">Cerrar</button></div>';
+  }
+  // ---------- dígitos LED de 7 segmentos (marcador de box) ----------
+  var LED_SEG = {
+    a: '12,3 48,3 53,8 48,13 12,13 7,8', g: '12,45 48,45 53,50 48,55 12,55 7,50', d: '12,87 48,87 53,92 48,97 12,97 7,92',
+    f: '8,12 13,17 13,41 8,46 3,41 3,17', e: '8,54 13,59 13,83 8,88 3,83 3,59',
+    b: '52,12 57,17 57,41 52,46 47,41 47,17', c: '52,54 57,59 57,83 52,88 47,83 47,59' };
+  var LED_DIG = { 0: 'abcdef', 1: 'bc', 2: 'abged', 3: 'abgcd', 4: 'fgbc', 5: 'afgcd', 6: 'afgedc', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg', '-': 'g', ' ': '' };
+  /** SVG con dígitos LED (encendidos + segmentos apagados de fondo, como un marcador real). */
+  function tmLed(txt, cls) {
+    var x = 0, h = '';
+    String(txt).split('').forEach(function (ch) {
+      if (ch === ':') { h += '<circle class="on" cx="' + (x + 12) + '" cy="32" r="5.5"/><circle class="on" cx="' + (x + 12) + '" cy="70" r="5.5"/>'; x += 24; return; }
+      var on = LED_DIG[ch] || '';
+      Object.keys(LED_SEG).forEach(function (k) { h += '<polygon class="' + (on.indexOf(k) >= 0 ? 'on' : 'off') + '" points="' + LED_SEG[k] + '" transform="translate(' + x + ' 0)"/>'; });
+      x += 68;
+    });
+    return '<svg class="led ' + (cls || '') + '" viewBox="-6 -2 ' + (x + 6) + ' 104" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><g transform="skewX(-6) translate(10 0)">' + h + '</g></svg>';
+  }
+  /** Reloj en formato marcador: MM:SS (o H:MM:SS). */
+  function tmLedTxt(s) {
+    s = Math.max(0, Math.round(s)); var hh = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60, p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return hh ? hh + ':' + p(m) + ':' + p(r) : p(Math.floor(s / 60)) + ':' + p(r);
+  }
+  function tmRonda(p) {
+    var m = /(?:Ronda|Serie) (\d+)\/(\d+)/.exec((p.sub || '') + ' ' + (p.tit || ''));
+    return m ? { n: +m[1], de: +m[2] } : null;
+  }
+  function tmPanel(seg, p, color) {
+    var rd = p ? tmRonda(p) : null;
+    return '<div class="rl-led ' + color + '">' +
+      (p ? '<div class="rl-rd">' + tmLed(rd ? (rd.n < 10 ? '0' : '') + rd.n : '  ', 'verde') + '<span>' + (rd ? 'de ' + rd.de : '&nbsp;') + '</span></div>' : '') +
+      '<div class="rl-t" aria-live="off" aria-label="' + tmFmt(seg) + '">' + tmLed(tmLedTxt(seg), color) + '</div></div>';
   }
   function tmPintar(soloTiempo) {
     var R = TM.run, el = document.getElementById('reloj'); if (!R || !el) return;
     var p = R.pasos[R.i], t = tmTranscurrido(), sig = R.pasos[R.i + 1];
-    var grande = p.k === 'up' || p.k === 'tap' ? tmFmt(t) : tmFmt(Math.max(0, Math.ceil(p.dur - t)));
+    var seg = p.k === 'up' || p.k === 'tap' ? Math.floor(t) : Math.max(0, Math.ceil(p.dur - t));
+    var color = p.k === 'rest' && !p.prep ? 'verde' : 'rojo';
     var prog = p.dur ? Math.min(1, t / p.dur) : 0;
     if (soloTiempo && el.querySelector('.rl-t')) {
-      el.querySelector('.rl-t').textContent = grande; var b = el.querySelector('.rl-bar i'); if (b) b.style.width = (prog * 100) + '%';
+      if (R.ultPint !== seg) { R.ultPint = seg; el.querySelector('.rl-t').innerHTML = tmLed(tmLedTxt(seg), color); }
+      var b = el.querySelector('.rl-bar i'); if (b) b.style.width = (prog * 100) + '%';
       return;
     }
+    R.ultPint = seg;
     el.className = 'reloj ' + (p.prep ? 'prep' : p.k) + (R.enPausa ? ' pausado' : '');
-    el.innerHTML = '<div class="rl-top"><span>' + esc(R.r.n + ' · ' + R.r.titulo) + '</span><span>' + (R.i) + '/' + (R.pasos.length - 1) + '</span></div>' +
-      '<div class="rl-mid"><div class="rl-tit">' + esc(p.tit) + '</div><div class="rl-sub">' + esc(p.sub || '') + '</div>' +
+    el.innerHTML = '<div class="rl-top"><span>' + esc(R.r.n + ' · ' + R.r.titulo) + '</span><span>Tramo ' + R.i + '/' + (R.pasos.length - 1) + '</span></div>' +
+      '<div class="rl-caja">' + tmPanel(seg, p, color) + (p.dur ? '<div class="rl-bar ' + color + '"><i style="width:' + (prog * 100) + '%"></i></div>' : '') + '</div>' +
+      '<div class="rl-info"><div class="rl-tit ' + color + '">' + esc(p.tit) + '</div>' +
+      (p.sub && !/^(Ronda|Serie) \d+\/\d+$/.test(p.sub) ? '<div class="rl-sub">' + esc(p.sub) + '</div>' : '') +
       (p.est ? '<div class="rl-est">' + esc(p.est) + '</div>' : '') +
-      '<div class="rl-t">' + grande + '</div>' + (p.dur ? '<div class="rl-bar"><i style="width:' + (prog * 100) + '%"></i></div>' : '') +
       (p.cap ? '<div class="rl-sub">Time cap a los ' + tmFmt(p.cap) + '</div>' : '') +
       '<div class="rl-sig">' + (sig ? 'Después: ' + esc(sig.tit) + (sig.dur ? ' · ' + tmFmt(sig.dur) : '') : 'Último tramo') + '</div></div>' +
       '<div class="rl-btns">' +
@@ -2192,7 +2267,7 @@
   // Tras 5 minutos sin usarla, el primer toque (o volver a la pestaña) busca versión nueva de la app
   // y recarga los datos. Si hay versión nueva, la página se recarga sola una vez (con el service worker
   // «primero red», una recarga basta para ver la última versión).
-  var WEB_VERSION = 'v4 · web 11';
+  var WEB_VERSION = 'v4 · web 12';
   var ultimaActividad = Date.now(), habiaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller), recargando = false;
   function recargarApp() {
     if (recargando) return;
