@@ -1156,7 +1156,7 @@
     return '<fieldset class="para" id="' + id + '"><legend>Para</legend><div class="para-ops">' +
       radio('todos', 'Todos') + radio('evento', 'Participantes de un evento') + radio('atletas', 'Atletas concretos') + '</div>' +
       '<div class="para-x" data-x="evento"' + (m === 'evento' ? '' : ' hidden') + '>' +
-        (evs.length ? '<select id="' + id + '-ev" aria-label="Evento">' + opciones(evs.map(function (e) { return { v: e.nombre, t: e.nombre + ' · ' + (e.nParticipantes || 0) + ' atleta' + (e.nParticipantes === 1 ? '' : 's') }; }), pre.evento) + '</select>' :
+        (evs.length ? '<select id="' + id + '-ev" aria-label="Evento"><option value="">— Elige el evento —</option>' + opciones(evs.map(function (e) { return { v: e.nombre, t: e.nombre + ' · ' + (e.nParticipantes || 0) + ' atleta' + (e.nParticipantes === 1 ? '' : 's') }; }), pre.evento) + '</select>' :
           '<div class="hint">No hay eventos activos. Créalo en Menú → Coach → Eventos.</div>') + '</div>' +
       '<div class="para-x ind-box" data-x="atletas"' + (m === 'atletas' ? '' : ' hidden') + '><div class="hint">Busca y toca los atletas (toca otra vez para quitar).</div>' +
         '<div id="' + id + '-chips" class="chips-sel"></div><div id="' + id + '-bus"></div></div>' +
@@ -2868,7 +2868,7 @@
   // Tras 5 minutos sin usarla, el primer toque (o volver a la pestaña) busca versión nueva de la app
   // y recarga los datos. Si hay versión nueva, la página se recarga sola una vez (con el service worker
   // «primero red», una recarga basta para ver la última versión).
-  var WEB_VERSION = 'v4 · web 15';
+  var WEB_VERSION = 'v4 · web 16';
   var ultimaActividad = Date.now(), habiaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller), recargando = false;
   function recargarApp() {
     if (recargando) return;
