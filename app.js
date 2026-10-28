@@ -2118,7 +2118,10 @@
     }
     R.ultPint = seg;
     el.className = 'reloj ' + (p.prep ? 'prep' : p.k) + (R.enPausa ? ' pausado' : '');
-    el.innerHTML = '<div class="rl-top"><span>' + esc(R.r.n + ' · ' + R.r.titulo) + '</span><span>Tramo ' + R.i + '/' + (R.pasos.length - 1) + '</span></div>' +
+    el.innerHTML = '<div class="rl-top"><span class="rl-nom">' + esc(R.r.n + ' · ' + R.r.titulo) + '</span><span class="rl-der"><span>Tramo ' + R.i + '/' + (R.pasos.length - 1) + '</span>' +
+      (tmPipSoportado() ? '<button class="rl-pip' + (PIP.abierta ? ' on' : '') + '" type="button" data-rl="burbuja" aria-label="' + (PIP.abierta ? 'Cerrar la burbuja flotante' : 'Abrir el timer en una burbuja flotante') + '">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="12" y="11.5" width="7.5" height="5.5" rx="1.2" fill="currentColor"/></svg>' +
+        '<span>' + (PIP.abierta ? 'Cerrar' : 'Burbuja') + '</span></button>' : '') + '</span></div>' +
       '<div class="rl-caja">' + tmPanel(seg, p, color) + (p.dur ? '<div class="rl-bar ' + color + '"><i style="width:' + (prog * 100) + '%"></i></div>' : '') + '</div>' +
       '<div class="rl-info"><div class="rl-tit ' + color + '">' + esc(p.tit) + '</div>' +
       (p.sub && !/^(Ronda|Serie) \d+\/\d+$/.test(p.sub) ? '<div class="rl-sub">' + esc(p.sub) + '</div>' : '') +
@@ -2128,9 +2131,8 @@
       '<div class="rl-btns">' +
       (p.k === 'tap' ? '<button class="btn btn-primary rl-big" type="button" data-rl="hecho">Hecho ✓</button>' : '') +
       (p.k === 'up' ? '<button class="btn btn-primary rl-big" type="button" data-rl="termine">Terminé</button>' : '') +
-      '<div class="rl-row' + (tmPipSoportado() ? ' cuatro' : '') + '"><button class="btn" type="button" data-rl="pausa">' + (R.enPausa ? 'Seguir' : 'Pausa') + '</button>' +
+      '<div class="rl-row"><button class="btn" type="button" data-rl="pausa">' + (R.enPausa ? 'Seguir' : 'Pausa') + '</button>' +
       '<button class="btn" type="button" data-rl="saltar">Saltar</button>' +
-      (tmPipSoportado() ? '<button class="btn" type="button" data-rl="burbuja" aria-label="Burbuja flotante">' + (PIP.abierta ? 'Cerrar burbuja' : 'Burbuja') + '</button>' : '') +
       '<button class="btn" type="button" data-rl="salir">Salir</button></div></div>';
   }
   function tmCerrar() {
@@ -2437,7 +2439,7 @@
   // Tras 5 minutos sin usarla, el primer toque (o volver a la pestaña) busca versión nueva de la app
   // y recarga los datos. Si hay versión nueva, la página se recarga sola una vez (con el service worker
   // «primero red», una recarga basta para ver la última versión).
-  var WEB_VERSION = 'v4 · web 13';
+  var WEB_VERSION = 'v4 · web 14';
   var ultimaActividad = Date.now(), habiaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller), recargando = false;
   function recargarApp() {
     if (recargando) return;
