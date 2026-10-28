@@ -2,7 +2,7 @@
 :root{
   --bg:#eef0f3; --surface:#ffffff; --surface-2:#e3e7ec; --line:#d3d8df;
   --fg:#15191f; --muted:#5b6573; --accent:#1f5fd1; --accent-ink:#ffffff;
-  --rpe-low:#1f8a5b; --rpe-mid:#c98a00; --rpe-high:#d2462f; --you:#7a4fd6; --ver:#c45a00; --danger:#c43a2a;
+  --rpe-low:#1b7f53; --rpe-mid:#c98a00; --rpe-high:#d2462f; --you:#7a4fd6; --ver:#a84d00; --danger:#c43a2a; --rojo-txt:#b3321f;
   --f-display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
   --f-board:"Barlow Semi Condensed","Arial Narrow",sans-serif;
   --f-body:"Barlow",system-ui,sans-serif;
@@ -11,12 +11,12 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#121417; --surface:#1b1f24; --surface-2:#242a31; --line:#2e353d;
   --fg:#eef1f4; --muted:#97a1ad; --accent:#5b93f5; --accent-ink:#0d1117;
-  --rpe-low:#3fbf86; --rpe-mid:#f0b429; --rpe-high:#ff6b52; --you:#a98bf2; --ver:#ff9a3d; --danger:#ff6b52;
+  --rpe-low:#3fbf86; --rpe-mid:#f0b429; --rpe-high:#ff6b52; --you:#a98bf2; --ver:#ff9a3d; --danger:#ff6b52; --rojo-txt:#ff6b52;
   color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#121417; --surface:#1b1f24; --surface-2:#242a31; --line:#2e353d;
   --fg:#eef1f4; --muted:#97a1ad; --accent:#5b93f5; --accent-ink:#0d1117;
-  --rpe-low:#3fbf86; --rpe-mid:#f0b429; --rpe-high:#ff6b52; --you:#a98bf2; --ver:#ff9a3d; --danger:#ff6b52;
+  --rpe-low:#3fbf86; --rpe-mid:#f0b429; --rpe-high:#ff6b52; --you:#a98bf2; --ver:#ff9a3d; --danger:#ff6b52; --rojo-txt:#ff6b52;
   color-scheme:dark}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -508,3 +508,15 @@ body.con-reloj{overflow:hidden}
 .ind-box .hint{margin-bottom:6px}
 .results .res.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
 .results .res.on b::before{content:"✓ ";color:var(--accent)}
+/* timer · burbuja flotante */
+.tm-pip-v{position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:.01;pointer-events:none;z-index:-1}
+.rl-row.cuatro{grid-template-columns:repeat(4,1fr)}
+.rl-row.cuatro .btn{padding-left:4px;padding-right:4px;font-size:15px}
+/* accesibilidad · zona táctil mínima de 44 px sin cambiar el aspecto */
+.icon-btn,.who,.btn-ghost.sm{position:relative}
+.icon-btn::before,.who::before,.tm-btn::before{content:"";position:absolute;inset:-4px}
+#prev::before,#next::before{inset:-4px -7px}
+.btn-ghost.sm::before{content:"";position:absolute;inset:-7px -2px}
+.rpe-chip{height:44px}
+/* accesibilidad · rojo de texto con contraste suficiente sobre fondos claros */
+.notice .lbl,.notice-modal .lbl,.countdown .lbl,.countdown .cd{color:var(--rojo-txt,var(--rpe-high))}

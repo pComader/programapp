@@ -515,7 +515,7 @@
     for (var i = 1; i <= 10; i++) {
       var sel = actual && Number(actual.v) === i;
       h += '<button type="button" class="rpe-chip' + (sel ? ' on' : '') + '" style="--c:' + rpeColor(String(i)) + '" data-v="' + i + '"' + datos +
-        ' aria-pressed="' + sel + '">' + i + '</button>';
+        ' aria-pressed="' + !!sel + '">' + i + '</button>';
     }
     return h + '</div>';
   }
@@ -1843,6 +1843,7 @@
   //  TIMER · botón por parte → «Tu timer» (editar y confirmar) → reloj a pantalla completa
   // =====================================================================
   var TM = { reg: [], run: null };
+  var PIP = {};   // burbuja flotante (imagen en imagen)
   function tmHash(s) { var h = 0; s = String(s); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
   function tmClave(r) { return 'pa-tm-' + r.iso + '|' + r.n + '|' + tmHash(r.texto); }
   function tmCorto(det) {
@@ -1967,7 +1968,14 @@
       if (!on && R && R.wl) { R.wl.release(); R.wl = null; }
     } catch (e) {}
   }
-  document.addEventListener('visibilitychange', function () { if (TM.run && document.visibilityState === 'visible' && !TM.run.fin) { TM.run.wl = null; tmWake(true); } });
+  // Al volver del segundo plano: recalcula con la hora real (salta los tramos que hayan pasado) y repinta.
+  document.addEventListener('visibilitychange', function () {
+    var R = TM.run; if (!R || R.fin) return;
+    if (document.visibilityState === 'visible') { R.wl = null; tmWake(true); tmAudio(); tmTick(); tmPintar(); }
+    else { tmGuardarRun(); tmPipAuto(); }
+  });
+  window.addEventListener('pagehide', function () { tmGuardarRun(); });
+  function tmAudio() { var R = TM.run; try { if (R && R.ac && R.ac.state === 'suspended') R.ac.resume(); } catch (e) {} }
 
   function tmEmpezar(i) {
     var r = TM.reg[i]; if (!r) return;
@@ -1979,36 +1987,81 @@
     cerrarHoja();
     var ac = null; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
     pasos.unshift({ k: 'rest', dur: 10, tit: 'Prepárate', sub: r.titulo, prep: true });
-    TM.run = { r: r, pasos: pasos, i: 0, ini: performance.now(), pausa: 0, enPausa: null, ac: ac, ultSeg: null, total0: Date.now(), fin: false, capAvisado: false };
-    var el = document.createElement('div'); el.id = 'reloj'; el.className = 'reloj'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Timer');
-    document.body.appendChild(el); document.body.classList.add('con-reloj');
-    tmWake(true); tmPintar(); TM.run.int = setInterval(tmTick, 100);
+    var rr = { texto: r.texto, etq: r.etq, iso: r.iso, n: r.n, titulo: r.titulo, version: r.version, metcon: r.metcon };
+    TM.run = { r: rr, pasos: pasos, i: 0, ini: Date.now(), pausa: 0, enPausa: null, ac: ac, ultSeg: null, total0: Date.now(), fin: false, capAvisado: false };
+    tmMontarReloj(); tmGuardarRun(); tmPipIniciar();
   }
-  function tmTranscurrido() { var R = TM.run; return ((R.enPausa || performance.now()) - R.ini - R.pausa) / 1000; }
+  function tmMontarReloj() {
+    var el = document.getElementById('reloj');
+    if (!el) { el = document.createElement('div'); el.id = 'reloj'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Timer'); document.body.appendChild(el); }
+    el.className = 'reloj'; document.body.classList.add('con-reloj');
+    tmWake(true); tmTick(); tmPintar(); clearInterval(TM.run.int); TM.run.int = setInterval(tmTick, 200);
+  }
+
+  // ---------- estado guardado: el timer sobrevive al segundo plano y a una recarga de la app ----------
+  // Todo se calcula con la hora real (Date.now): aunque el móvil congele la app, al volver se sabe
+  // exactamente en qué tramo y segundo va.
+  var TM_KEY = 'pa-tm-run';
+  function tmGuardarRun() {
+    var R = TM.run; if (!R || R.fin) return;
+    guardar(TM_KEY, { r: R.r, pasos: R.pasos, i: R.i, ini: R.ini, pausa: R.pausa, enPausa: R.enPausa, total0: R.total0 });
+  }
+  function tmBorrarRun() { try { localStorage.removeItem(TM_KEY); } catch (e) {} }
+  function tmRestaurar() {
+    if (TM.run) return;
+    var s = leer(TM_KEY);
+    if (!s || !s.pasos || !s.pasos.length || Date.now() - s.total0 > 4 * 3600 * 1000) { tmBorrarRun(); return; }
+    var ac = null; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    TM.run = { r: s.r, pasos: s.pasos, i: s.i, ini: s.ini, pausa: s.pausa || 0, enPausa: s.enPausa || null, ac: ac, ultSeg: null, total0: s.total0, fin: false, capAvisado: true };
+    tmMontarReloj(); tmPipIniciar();
+  }
+  setTimeout(tmRestaurar, 0);
+
+  function tmTranscurrido() { var R = TM.run; return ((R.enPausa || Date.now()) - R.ini - R.pausa) / 1000; }
   function tmTick() {
-    var R = TM.run; if (!R || R.fin || R.enPausa) return;
-    var p = R.pasos[R.i], t = tmTranscurrido();
+    var R = TM.run; if (!R || R.fin) return;
+    if (R.enPausa) { tmPipDibujar(); return; }
+    var saltos = 0, p, t;
+    for (;;) {
+      p = R.pasos[R.i]; t = tmTranscurrido();
+      if (!(p.k === 'work' || p.k === 'rest') || t < p.dur) break;
+      // el tramo terminó (en directo o mientras la app estaba en segundo plano): pasa al siguiente
+      // con el reloj exacto en que acabó, sin perder ni ganar segundos
+      if (R.i + 1 >= R.pasos.length) { R.i = R.pasos.length; return tmFinal(); }
+      R.ini = R.ini + R.pausa + p.dur * 1000; R.pausa = 0; R.i++; R.ultSeg = null; R.capAvisado = false; saltos++;
+      if (saltos > 1000) break;
+    }
+    if (saltos) { tmAvisoTramo(); tmPintar(); tmGuardarRun(); tmPipDibujar(); return; }
     if (p.k === 'work' || p.k === 'rest') {
-      var resta = p.dur - t, seg = Math.ceil(resta);
+      var seg = Math.ceil(p.dur - t);
       if (seg !== R.ultSeg) {
         R.ultSeg = seg;
         if (seg <= 3 && seg >= 1) tmBeep(880, 120);
         if (p.cap && !R.capAvisado && t >= p.cap) { R.capAvisado = true; tmBeep(660, 400); tmVibrar([150, 80, 150]); }
       }
-      if (resta <= 0) return tmSiguiente();
     }
-    tmPintar(true);
+    tmPintar(true); tmPipDibujar();
   }
+  function tmAvisoTramo() { var p = TM.run.pasos[TM.run.i]; tmBeep(p.k === 'rest' ? 520 : 1040, 450); tmVibrar(p.k === 'rest' ? 200 : [250, 100, 250]); }
+  /** Saltar o «Hecho»: el siguiente tramo empieza ahora. */
   function tmSiguiente() {
     var R = TM.run;
-    R.i++; R.ini = performance.now(); R.pausa = 0; R.ultSeg = null; R.capAvisado = false;
+    R.i++; R.ini = Date.now(); R.pausa = 0; R.ultSeg = null; R.capAvisado = false;
     if (R.i >= R.pasos.length) return tmFinal();
-    var p = R.pasos[R.i];
-    tmBeep(p.k === 'rest' ? 520 : 1040, 450); tmVibrar(p.k === 'rest' ? 200 : [250, 100, 250]);
-    tmPintar();
+    tmAvisoTramo(); tmPintar(); tmGuardarRun(); tmPipDibujar();
+  }
+  /** Pausa / seguir (desde el botón, desde la burbuja o desde los controles del sistema). */
+  function tmPausa(on) {
+    var R = TM.run; if (!R || R.fin) return;
+    if (on === undefined) on = !R.enPausa;
+    if (on && !R.enPausa) R.enPausa = Date.now();
+    else if (!on && R.enPausa) { R.pausa += Date.now() - R.enPausa; R.enPausa = null; tmWake(true); }
+    else return;
+    tmPintar(); tmGuardarRun(); tmPipDibujar(); tmPipSync();
   }
   function tmFinal(cronoSeg) {
-    var R = TM.run; R.fin = true; clearInterval(R.int); tmWake(false);
+    var R = TM.run; R.fin = true; clearInterval(R.int); tmWake(false); tmBorrarRun();
+    tmPipDibujar('FIN'); setTimeout(tmPipCerrar, 5000);
     tmBeep(1040, 700); tmVibrar([300, 120, 300, 120, 300]);
     var el = document.getElementById('reloj'); if (!el) return;
     var total = (Date.now() - R.total0) / 1000 - 10;
@@ -2050,7 +2103,7 @@
     var rd = p ? tmRonda(p) : null;
     return '<div class="rl-led ' + color + '">' +
       (p ? '<div class="rl-rd">' + tmLed(rd ? (rd.n < 10 ? '0' : '') + rd.n : '  ', 'verde') + '<span>' + (rd ? 'de ' + rd.de : '&nbsp;') + '</span></div>' : '') +
-      '<div class="rl-t" aria-live="off" aria-label="' + tmFmt(seg) + '">' + tmLed(tmLedTxt(seg), color) + '</div></div>';
+      '<div class="rl-t" role="timer" aria-live="off" aria-label="' + tmFmt(seg) + '">' + tmLed(tmLedTxt(seg), color) + '</div></div>';
   }
   function tmPintar(soloTiempo) {
     var R = TM.run, el = document.getElementById('reloj'); if (!R || !el) return;
@@ -2075,12 +2128,15 @@
       '<div class="rl-btns">' +
       (p.k === 'tap' ? '<button class="btn btn-primary rl-big" type="button" data-rl="hecho">Hecho ✓</button>' : '') +
       (p.k === 'up' ? '<button class="btn btn-primary rl-big" type="button" data-rl="termine">Terminé</button>' : '') +
-      '<div class="rl-row"><button class="btn" type="button" data-rl="pausa">' + (R.enPausa ? 'Seguir' : 'Pausa') + '</button>' +
-      '<button class="btn" type="button" data-rl="saltar">Saltar</button><button class="btn" type="button" data-rl="salir">Salir</button></div></div>';
+      '<div class="rl-row' + (tmPipSoportado() ? ' cuatro' : '') + '"><button class="btn" type="button" data-rl="pausa">' + (R.enPausa ? 'Seguir' : 'Pausa') + '</button>' +
+      '<button class="btn" type="button" data-rl="saltar">Saltar</button>' +
+      (tmPipSoportado() ? '<button class="btn" type="button" data-rl="burbuja" aria-label="Burbuja flotante">' + (PIP.abierta ? 'Cerrar burbuja' : 'Burbuja') + '</button>' : '') +
+      '<button class="btn" type="button" data-rl="salir">Salir</button></div></div>';
   }
   function tmCerrar() {
     var R = TM.run; if (R) { clearInterval(R.int); tmWake(false); try { if (R.ac) R.ac.close(); } catch (e) {} }
-    TM.run = null; var el = document.getElementById('reloj'); if (el) el.remove(); document.body.classList.remove('con-reloj');
+    TM.run = null; tmBorrarRun(); tmPipCerrar(); var el = document.getElementById('reloj'); if (el) el.remove(); document.body.classList.remove('con-reloj');
+    if (S.recargarAlCerrar) { S.recargarAlCerrar = false; setTimeout(recargarApp, 50); }
   }
 
   document.addEventListener('click', function (e) {
@@ -2098,15 +2154,129 @@
     if ((b = t.closest('[data-rl]'))) {
       var R = TM.run, a = b.dataset.rl; if (!R) return;
       if (a === 'salir') { tmCerrar(); return; }
-      if (a === 'pausa') { if (R.enPausa) { R.pausa += performance.now() - R.enPausa; R.enPausa = null; tmWake(true); } else R.enPausa = performance.now(); tmPintar(); return; }
+      tmAudio();
+      if (a === 'pausa') { tmPausa(); return; }
+      if (a === 'burbuja') { tmPipAbrir(); return; }
       if (a === 'saltar' || a === 'hecho') { tmSiguiente(); return; }
       if (a === 'termine') { var seg = tmTranscurrido(); R.i = R.pasos.length; tmFinal(seg); return; }
       if (a === 'resultado') {
         var rr = R.r, tt = b.dataset.t ? textoTiempo({ h: Math.floor(+b.dataset.t / 3600), m: Math.floor(+b.dataset.t % 3600 / 60), s: +b.dataset.t % 60 }) : null;
-        tmCerrar(); S._prefTiempo = tt; abrirResultado(rr.iso, rr.n, rr.version || ''); return;
+        tmCerrar(); if (!S.data) { toast('Abre la app y apunta el resultado desde el bloque.'); return; }
+        S._prefTiempo = tt; abrirResultado(rr.iso, rr.n, rr.version || ''); return;
       }
     }
   });
+
+  // =====================================================================
+  //  BURBUJA FLOTANTE · el marcador en una ventanita «imagen en imagen» encima de cualquier app.
+  //  Se dibuja en un canvas que se emite como vídeo; el botón ▶/❚❚ de la ventanita pausa el timer.
+  // =====================================================================
+  function tmPipSoportado() {
+    try {
+      var v = HTMLVideoElement.prototype, c = HTMLCanvasElement.prototype;
+      return !!c.captureStream && !!(('requestPictureInPicture' in v && document.pictureInPictureEnabled !== false) || 'webkitSetPresentationMode' in v);
+    } catch (e) { return false; }
+  }
+  function tmPipIniciar() {
+    if (!tmPipSoportado() || PIP.v) return;
+    try {
+      var c = document.createElement('canvas'); c.width = 640; c.height = 360;
+      var v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
+      v.setAttribute('autopictureinpicture', ''); try { v.autoPictureInPicture = true; } catch (e) {}
+      v.className = 'tm-pip-v'; v.setAttribute('aria-hidden', 'true');
+      PIP = { c: c, ctx: c.getContext('2d'), v: v, abierta: false, ignorar: false };
+      tmPipDibujar();
+      v.srcObject = c.captureStream(10);
+      document.body.appendChild(v);
+      v.play().catch(function () {});
+      v.addEventListener('pause', function () { if (!PIP.ignorar && PIP.abierta) tmPausa(true); });
+      v.addEventListener('play', function () { if (!PIP.ignorar && PIP.abierta) tmPausa(false); });
+      v.addEventListener('enterpictureinpicture', function () { PIP.abierta = true; tmPintar(); });
+      v.addEventListener('leavepictureinpicture', function () { PIP.abierta = false; if (TM.run) tmPintar(); });
+      v.addEventListener('webkitpresentationmodechanged', function () { PIP.abierta = v.webkitPresentationMode === 'picture-in-picture'; if (TM.run) tmPintar(); });
+      if (navigator.mediaSession) {
+        try { navigator.mediaSession.metadata = new MediaMetadata({ title: 'Timer · ' + (TM.run.r.titulo || ''), artist: 'Fabrik Program' }); } catch (e) {}
+        [['play', function () { tmPausa(false); }], ['pause', function () { tmPausa(true); }],
+         ['enterpictureinpicture', function () { tmPipAbrir(); }]].forEach(function (h) { try { navigator.mediaSession.setActionHandler(h[0], h[1]); } catch (e) {} });
+      }
+    } catch (e) { PIP = {}; }
+  }
+  /** Abrir / cerrar la burbuja con el botón (necesita el toque del usuario). */
+  function tmPipAbrir() {
+    var v = PIP.v; if (!v) { tmPipIniciar(); v = PIP.v; } if (!v) { toast('Tu navegador no permite la burbuja.'); return; }
+    try {
+      if (PIP.abierta) {
+        if (document.pictureInPictureElement && document.exitPictureInPicture) document.exitPictureInPicture().catch(function () {});
+        else if (v.webkitSetPresentationMode) v.webkitSetPresentationMode('inline');
+        return;
+      }
+      var abrir = function () {
+        if (v.requestPictureInPicture) return v.requestPictureInPicture();
+        v.webkitSetPresentationMode('picture-in-picture');
+      };
+      var pr = v.play(); tmPipSync();
+      Promise.resolve(pr).catch(function () {}).then(abrir).catch(function () { toast('No se pudo abrir la burbuja.'); });
+    } catch (e) { toast('No se pudo abrir la burbuja.'); }
+  }
+  /** Al pasar a segundo plano: intenta abrir la burbuja sola (Android/Chrome y iPhone lo permiten según versión). */
+  function tmPipAuto() {
+    var v = PIP.v; if (!v || PIP.abierta || !TM.run || TM.run.fin) return;
+    try { if (v.requestPictureInPicture) v.requestPictureInPicture().catch(function () {}); } catch (e) {}
+  }
+  /** El vídeo de la burbuja sigue al timer: en pausa muestra ▶, corriendo muestra ❚❚. */
+  function tmPipSync() {
+    var v = PIP.v, R = TM.run; if (!v || !R) return;
+    PIP.ignorar = true;
+    if (R.enPausa) setTimeout(function () { try { v.pause(); } catch (e) {} setTimeout(function () { PIP.ignorar = false; }, 50); }, 150);
+    else Promise.resolve(v.play()).catch(function () {}).then(function () { setTimeout(function () { PIP.ignorar = false; }, 50); });
+  }
+  function tmPipCerrar() {
+    var v = PIP.v; if (!v) return;
+    try { if (document.pictureInPictureElement === v) document.exitPictureInPicture().catch(function () {}); else if (v.webkitPresentationMode === 'picture-in-picture') v.webkitSetPresentationMode('inline'); } catch (e) {}
+    try { v.pause(); v.srcObject = null; v.remove(); } catch (e) {}
+    PIP = {};
+  }
+  /** Dígitos LED en el canvas (los mismos segmentos que el marcador grande). */
+  function tmPipLed(ctx, txt, cx, y, h, color) {
+    var sc = h / 104, w = 0;
+    String(txt).split('').forEach(function (ch) { w += ch === ':' ? 24 : 68; });
+    ctx.save(); ctx.translate(cx - (w * sc) / 2, y); ctx.transform(1, 0, -0.105, 1, 0, 0); ctx.scale(sc, sc);
+    var x = 0;
+    String(txt).split('').forEach(function (ch) {
+      if (ch === ':') {
+        ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 14;
+        [32, 70].forEach(function (cy) { ctx.beginPath(); ctx.arc(x + 12, cy, 5.5, 0, 7); ctx.fill(); });
+        x += 24; return;
+      }
+      var on = LED_DIG[ch] || '';
+      Object.keys(LED_SEG).forEach(function (k) {
+        var pts = LED_SEG[k].split(' ').map(function (p) { return p.split(',').map(Number); });
+        ctx.beginPath(); pts.forEach(function (p, j) { if (j) ctx.lineTo(x + p[0], p[1]); else ctx.moveTo(x + p[0], p[1]); }); ctx.closePath();
+        var lit = on.indexOf(k) >= 0;
+        ctx.fillStyle = lit ? color : 'rgba(255,255,255,.06)'; ctx.shadowColor = color; ctx.shadowBlur = lit ? 14 : 0; ctx.fill();
+      });
+      x += 68;
+    });
+    ctx.restore();
+  }
+  function tmPipDibujar(fin) {
+    var ctx = PIP.ctx, R = TM.run; if (!ctx || !R) return;
+    var W = 640, H = 360, p = R.pasos[Math.min(R.i, R.pasos.length - 1)];
+    var t = tmTranscurrido(), seg = fin ? 0 : (p.k === 'up' || p.k === 'tap' ? Math.floor(t) : Math.max(0, Math.ceil(p.dur - t)));
+    var color = !fin && p.k === 'rest' && !p.prep ? '#20f05a' : '#ff2b1c', rd = tmRonda(p);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    ctx.shadowBlur = 0; ctx.font = '700 30px system-ui, sans-serif'; ctx.textBaseline = 'top';
+    ctx.fillStyle = color; ctx.textAlign = 'left';
+    ctx.fillText(String(fin ? 'TERMINADO' : R.enPausa ? 'EN PAUSA' : p.tit).toUpperCase().slice(0, 26), 24, 22);
+    if (rd && !fin) { ctx.fillStyle = '#20f05a'; ctx.textAlign = 'right'; ctx.fillText('R ' + rd.n + '/' + rd.de, W - 24, 22); }
+    tmPipLed(ctx, tmLedTxt(seg), W / 2, 92, 190, color);
+    if (p.dur && !fin) {
+      ctx.fillStyle = '#1a1a1a'; ctx.fillRect(24, 318, W - 48, 10);
+      ctx.fillStyle = color; ctx.fillRect(24, 318, (W - 48) * Math.min(1, t / p.dur), 10);
+    }
+    if (R.enPausa && !fin) { ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0, 70, W, 240); }
+  }
 
   // ---------- Pedir acceso ----------
   function pantallaSolicitud(email, estado) {
@@ -2267,11 +2437,11 @@
   // Tras 5 minutos sin usarla, el primer toque (o volver a la pestaña) busca versión nueva de la app
   // y recarga los datos. Si hay versión nueva, la página se recarga sola una vez (con el service worker
   // «primero red», una recarga basta para ver la última versión).
-  var WEB_VERSION = 'v4 · web 12';
+  var WEB_VERSION = 'v4 · web 13';
   var ultimaActividad = Date.now(), habiaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller), recargando = false;
   function recargarApp() {
     if (recargando) return;
-    if (!$scrim.hidden) { S.recargarAlCerrar = true; return; }   // no cortar a alguien que está escribiendo
+    if (!$scrim.hidden || (TM.run && !TM.run.fin)) { S.recargarAlCerrar = true; return; }   // no cortar a alguien que está escribiendo o con el timer en marcha
     recargando = true; location.reload();
   }
   function alVolver() {
