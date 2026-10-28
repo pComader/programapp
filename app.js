@@ -290,6 +290,7 @@
     if (S.vista === 'ajustes') return renderAjustes();
     if (S.vista === 'ficha') return renderFicha();
     if (S.vista === 'ranking') return renderRanking();
+    if (S.vista === 'calendario') return renderCalendario();
     if (d.soloEventos) return renderSoloEventos(d);
     if (!d.dias || !d.dias.length) {
       $app.innerHTML = cabecera(d) + '<div class="empty">Gabi todavía no ha publicado la semana.' +
@@ -297,8 +298,8 @@
       enlazarCabecera(); return;
     }
     var aviso = d.publicada === false ? '<div class="unpub">Vista previa · ' + (d.proxima ? 'se publica el ' + esc(d.proxima) : 'aún sin publicar') + '</div>' : '';
-    TM.reg = [];
-    $app.innerHTML = cabecera(d) + bannerInstalar() + aviso + tarjetaSemana(d) + ciclo(d) + semana(d) + '<main class="day" id="day">' + dia(d, d.dias[S.dia]) + '</main>' +
+    TM.reg = []; renovarPush();
+    $app.innerHTML = cabecera(d) + bannerInstalar() + bannerPush() + aviso + tarjetaSemana(d) + ciclo(d) + semana(d) + '<main class="day" id="day">' + dia(d, d.dias[S.dia]) + '</main>' +
       (S.aviso ? '<div class="stale">' + esc(S.aviso) + '</div>' : '');
     enlazarCabecera();
     abrirAvisosPendientes(d);
@@ -334,11 +335,12 @@
         var cls = i < c.actual ? 'done' : i === c.actual ? (k < c.semana ? 'done' : k === c.semana ? 'now' : '') : '';
         celdas += '<i class="' + cls + '"></i>';
       }
-      return '<div class="phase' + (i === c.actual ? ' cur' : '') + '"><div class="bar">' + celdas + '</div><span>' + esc(f.nombre) + '</span></div>';
+      var nn = notasDeFase(f.nombre).length;
+      return '<button type="button" class="phase' + (i === c.actual ? ' cur' : '') + '" data-fase="' + i + '" aria-label="' + esc(f.nombre) + ': objetivos y notas"><div class="bar">' + celdas + '</div><span>' + esc(f.nombre) + (nn ? ' <em class="ph-n">' + nn + '</em>' : '') + '</span></button>';
     }).join('');
     var fa = c.fases[c.actual];
     var linea = fa ? '<div class="cycle-line"><b>' + esc(cap(fa.nombre)) + '</b> · semana ' + c.semana + ' de ' + fa.semanas + '</div>' : '';
-    var obj = fa && fa.objetivos ? '<details><summary>Objetivos de la fase</summary><div class="exp-body goals">' + esc(fa.objetivos) + '</div></details>' : '';
+    var obj = '<div class="hint ph-hint">Toca una fase para ver sus objetivos y las notas del coach.</div>';
     return '<section class="cycle" aria-label="Ciclo">' + '<div class="phases">' + fases + '</div>' + linea + obj + '</section>';
   }
   function cap(s) { s = String(s || '').toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); }
@@ -590,7 +592,7 @@
     (S.data.valoraciones.leidos = S.data.valoraciones.leidos || []).push(id);
     (S.data.eventos || []).forEach(function (e) { if (e.id === id) e.visto = true; });
     api({ action: 'aviso_visto', id: id }).catch(function () {});
-    cerrarHoja(); toast('Marcado como visto. Lo tienes en Ajustes → Avisos.');
+    cerrarHoja(); toast('Marcado como visto. Lo tienes en Menú → Avisos.');
   }
 
   // ---------- aviso breve en pantalla ----------
@@ -643,7 +645,9 @@
       '<button class="btn-ghost" type="button" id="compartir2">Compartir app</button>' + (solo ? '' : htmlPerfilSexo()) + '</section>';
 
     html += seccion('s-eventos', 'Mis eventos', htmlEventos(d), evs.length ? String(evs.length) : '', '★');
+    html += '<button class="set-link" type="button" id="ir-calendario"><span class="set-ico">▦</span>Calendario de eventos<span class="go">›</span></button>';
     html += seccion('s-avisos', 'Avisos', htmlAvisos(avisos), nuevosAv ? String(nuevosAv) : '', '!');
+    html += seccion('s-push', 'Notificaciones', htmlPush(), pushEstado() === 'activas' ? 'activas' : '', '🔔');
     if (!solo) html += seccion('s-notas', 'Notas del coach', htmlNotasSemana(d) + '<div class="part-lbl" style="margin-top:10px">Ejercicios recomendados</div>' + htmlRecsAtleta(d.recomendaciones || []), '', '✎');
     if (!solo) html += '<button class="set-link" type="button" id="ir-ranking"><span class="set-ico">🏆</span>Leaderboard<span class="go">›</span></button>';
     if (!solo) html += seccion('s-marcas', 'Mis marcas', htmlMarcas(d), '', '◆');
@@ -674,20 +678,33 @@
   function cuandoEvento(e) {
     return fechaCorta(e.inicio) + (e.fin && e.fin !== e.inicio ? ' – ' + fechaCorta(e.fin) : '') + (e.hora ? ' · ' + e.hora : '');
   }
+  var TXT_INSCRIPCION = { 'Libre': 'Inscripción libre', 'Con aprobación': 'Inscripción con aprobación del coach', 'Cerrada': 'Inscripción cerrada' };
+  function estadoSolicitud(e) {
+    var s = ((S.data && S.data.misSolicitudes) || []).filter(function (x) { return x.id === e.id; })[0];
+    return s ? s.estado : '';
+  }
   function tarjetaEvento(e, abierto) {
-    var notas = e.notas || [];
+    var notas = e.notas || [], avs = e.avisos || [], est = estadoSolicitud(e);
     return '<details class="ev-card' + (e.mio ? ' mio' : '') + '" id="ev-' + esc(e.id) + '"' + (abierto ? ' open' : '') + '><summary><div class="ev-sum"><span class="ev-tipo">' + esc(e.tipo) + '</span>' +
       '<b>' + esc(e.nombre) + '</b><span class="hint">' + esc(cuandoEvento(e)) + (e.lugar ? ' · ' + esc(e.lugar) : '') + '</span></div>' +
       (e.inicio && !e.pasado ? '<span class="cd sm">' + esc(diasHasta(e.inicio)) + '</span>' : '') + '</summary><div class="exp-body">' +
       (e.descripcion ? '<p class="ev-desc">' + esc(e.descripcion) + '</p>' : '') +
       (e.enlace ? '<a class="btn" href="' + esc(e.enlace) + '" target="_blank" rel="noopener">Abrir enlace</a>' : '') +
+      (e.nombresParticipantes && e.nombresParticipantes.length ? '<div class="ev-part"><span class="hint">Van (' + e.nombresParticipantes.length + '):</span> ' + e.nombresParticipantes.map(esc).join(', ') + '</div>' :
+        e.nParticipantes ? '<div class="hint">' + e.nParticipantes + ' apuntado' + (e.nParticipantes > 1 ? 's' : '') + '</div>' : '') +
+      (avs.length ? '<div class="ev-avs">' + avs.map(function (a) { return '<div class="ev-av"><b>! ' + esc(a.titulo) + '</b>' + (a.mensaje ? '<p>' + esc(a.mensaje) + '</p>' : '') + '</div>'; }).join('') + '</div>' : '') +
       (notas.length ? '<details class="cnote ev" open><summary><span class="cn-ico">★</span><span class="coach-sum">Notas y entrenos del coach (' + notas.length + ')</span></summary><div class="exp-body">' +
         notas.map(function (n) {
           return '<div class="cn-item"><div class="cn-lbl">' + esc(n.tipo) + ' · ' + (n.fecha ? fechaCorta(n.fecha) : '') + (n.alcance === 'SEMANA' ? ' (semana)' : '') + '</div><p>' + esc(n.texto) + '</p>' +
             (n.video ? '<button type="button" class="btn-ghost sm" data-video-url="' + esc(n.video) + '" data-video-nombre="' + esc(e.nombre) + '">▶ Vídeo</button>' : '') + '</div>';
         }).join('') + '</div></details>' : '') +
-      (!e.mio && !e.pasado ? (e.solicitado ? '<div class="hint">Solicitud enviada · pendiente de que la apruebe el coach.</div>' :
-        '<button class="btn" type="button" data-unirme="' + esc(e.id) + '">Quiero apuntarme</button>') : '') +
+      (!e.pasado ? botonesCalendario(e) : '') +
+      (!e.mio && !e.pasado && !/^AVISO$/i.test(e.tipo) ? (e.solicitado ? '<div class="hint">Solicitud enviada · pendiente de que la apruebe el coach.</div>' :
+        e.inscripcion === 'Cerrada' ? '<div class="hint">' + TXT_INSCRIPCION.Cerrada + '.</div>' :
+        '<button class="btn" type="button" data-unirme="' + esc(e.id) + '">' + (e.inscripcion === 'Libre' ? 'Apuntarme' : 'Pedir plaza') + '</button>' +
+        '<div class="hint">' + esc(TXT_INSCRIPCION[e.inscripcion] || '') + '</div>') : '') +
+      (e.mio && !e.pasado && !(S.data && S.data.soloEventos) ? '<button class="btn-ghost sm" type="button" data-salir="' + esc(e.id) + '">Desapuntarme</button>' : '') +
+      (est === 'Rechazada' && !e.mio ? '<div class="hint">Tu última solicitud fue rechazada.</div>' : '') +
       '</div></details>';
   }
   function htmlEventos(d) {
@@ -700,12 +717,21 @@
     if (todos.length) h += '<div class="part-lbl" style="margin-top:10px">Para todos</div>' + todos.map(function (e) { return tarjetaEvento(e); }).join('');
     if (otros.length) h += '<details class="hist"><summary>Otros eventos (puedes pedir apuntarte)</summary><div class="exp-body">' + otros.map(function (e) { return tarjetaEvento(e); }).join('') + '</div></details>';
     if (pasados.length) h += '<details class="hist"><summary>Pasados (' + pasados.length + ')</summary><div class="exp-body">' + pasados.map(function (e) { return tarjetaEvento(e); }).join('') + '</div></details>';
+    // apuntarse desde un desplegable
+    var abiertos = l.filter(function (e) { return !e.mio && !e.pasado && !e.solicitado && e.inscripcion !== 'Cerrada' && !/^AVISO$/i.test(e.tipo); });
+    if (abiertos.length && !d.soloEventos) h = '<div class="unirme"><label for="ev-unirme">Apuntarme a un evento</label><div class="pl-row"><select id="ev-unirme"><option value="">— Elige —</option>' +
+      abiertos.map(function (e) { return '<option value="' + esc(e.id) + '">' + esc(e.tipo) + ' · ' + esc(e.nombre) + ' · ' + fechaCorta(e.inicio) + (e.inscripcion === 'Libre' ? '' : ' (con aprobación)') + '</option>'; }).join('') +
+      '</select><button class="btn btn-primary" type="button" data-unirme="sel">Enviar</button></div></div>' + h;
+    var sols = d.misSolicitudes || [];
+    if (sols.length) h += '<details class="hist"' + (sols.some(function (s) { return s.estado === 'Pendiente'; }) ? ' open' : '') + '><summary>Mis solicitudes (' + sols.length + ')</summary><div class="exp-body">' +
+      sols.map(function (s) { return '<div class="sol-mia"><span>' + esc(s.evento) + '<span class="hint"> · ' + esc(s.fecha) + '</span></span><span class="est est-' + norm(s.estado).toLowerCase().replace(/\s+/g, '-') + '">' + esc(s.estado) + '</span></div>'; }).join('') +
+      '</div></details>';
     return h;
   }
 
   // ---------- Avisos ----------
   function misAvisos(d) {
-    return (d.eventos || []).filter(function (e) { return e.aviso && e.visible; });
+    return d.avisosLista || (d.eventos || []).filter(function (e) { return e.aviso && e.visible; });
   }
   function htmlAvisos(lista) {
     var activos = lista.filter(function (a) { return !a.pasado; }), viejos = lista.filter(function (a) { return a.pasado; });
@@ -794,9 +820,11 @@
   // ---------- Coach ----------
   function htmlCoach(d) {
     return '<div class="coach-grid">' +
+      '<button class="btn btn-primary co-pub" type="button" id="co-publicar">＋ Publicar aviso o nota</button>' +
+      '<button class="btn" type="button" id="co-eventos">Eventos</button>' +
+      '<button class="btn" type="button" id="co-avisos">Avisos · quién los ha visto</button>' +
+      '<button class="btn" type="button" id="co-misnotas">Mis notas</button>' +
       '<button class="btn" type="button" id="co-atletas">Atletas · ficha</button>' +
-      '<button class="btn" type="button" id="co-eventos">Eventos y avisos</button>' +
-      '<button class="btn" type="button" id="co-notas">Nota a un evento o a todos</button>' +
       '<button class="btn" type="button" id="co-solic">Solicitudes' + (d.solicitudesPendientes ? ' (' + d.solicitudesPendientes + ')' : '') + '</button>' +
       '<button class="btn' + (segPend(d) ? ' seg-alert' : '') + '" type="button" data-seg-abrir>Seguimiento' + (segPend(d) ? ' (' + segPend(d) + ')' : '') + '</button></div>' +
       '<div class="hint">Las propuestas de descuento se aprueban en «% Descuentos».</div>';
@@ -850,23 +878,26 @@
   }
 
   // ---------- Coach: eventos ----------
-  var TIPOS_EVENTO = ['Competición', 'Toma de marcas', 'Wod especial', 'Carrera', 'HYROX', 'Inscripción', 'Aviso', 'Otro'];
+  var TIPOS_EVENTO = ['Competición', 'Toma de marcas', 'Wod especial', 'Carrera', 'HYROX', 'DEKA', 'Día especial', 'Clase especial', 'Inscripción', 'Otro'];
   function abrirEventosCoach() {
     abrirHoja('<div class="row"><h2>Eventos y avisos</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
-      '<button class="btn btn-primary" type="button" id="ev-nuevo">＋ Nuevo evento</button><button class="btn" type="button" id="av-nuevo">＋ Nuevo aviso rápido</button>' +
+      '<button class="btn btn-primary" type="button" id="ev-nuevo">＋ Nuevo evento</button>' +
       '<div id="evc-lista"><div class="hint">Cargando…</div></div>');
     document.getElementById('ev-nuevo').onclick = function () { abrirFormEvento({}); };
-    document.getElementById('av-nuevo').onclick = function () { abrirFormEvento({ tipo: 'Aviso', aviso: true, para: 'Todos', inicio: S.data.hoy }); };
+
     api({ action: 'eventos' }).then(function (r) { if (r.ok) { S.data.eventos = r.eventos; pintarEventosCoach(); } });
   }
   function pintarEventosCoach() {
     var el = document.getElementById('evc-lista'); if (!el) return;
-    var l = (S.data.eventos || []).slice().sort(function (a, b) { return (a.pasado - b.pasado) || (a.inicio < b.inicio ? -1 : 1); });
+    var l = (S.data.eventos || []).filter(function (e) { return !/^AVISO$/i.test(e.tipo); }).sort(function (a, b) { return (a.pasado - b.pasado) || (a.inicio < b.inicio ? -1 : 1); });
     el.innerHTML = l.length ? l.map(function (e) {
       return '<div class="evc' + (e.pasado ? ' pasado' : '') + '"><div class="evc-top"><span class="ev-tipo">' + esc(e.tipo) + '</span><b>' + esc(e.nombre) + '</b></div>' +
-        '<div class="hint">' + esc(cuandoEvento(e)) + ' · ' + esc(textoPara(e.para)) + (e.aviso ? ' · aviso al entrar' : '') + ' · ' + (e.participantes || []).length + ' atleta' + ((e.participantes || []).length === 1 ? '' : 's') + '</div>' +
+        '<div class="hint">' + esc(cuandoEvento(e)) + ' · ' + esc(textoPara(e.para)) + (e.aviso ? ' · aviso al entrar' : '') + ' · ' + (e.participantes || []).length + ' atleta' + ((e.participantes || []).length === 1 ? '' : 's') +
+          ' · ' + esc(TXT_INSCRIPCION[e.inscripcion] || '') + '</div>' +
+        (e.pendientes ? '<button class="btn-ghost sm pend" type="button" data-solic-ev>' + e.pendientes + ' solicitud' + (e.pendientes > 1 ? 'es' : '') + ' por aprobar ›</button>' : '') +
         '<div class="evc-acc"><button class="btn-ghost" type="button" data-ev-edit="' + esc(e.id) + '">Editar</button>' +
         '<button class="btn-ghost" type="button" data-ev-part="' + esc(e.id) + '">Atletas</button>' +
+        '<button class="btn-ghost" type="button" data-ev-aviso="' + esc(e.id) + '">Aviso</button>' +
         '<button class="btn-ghost" type="button" data-ev-nota="' + esc(e.id) + '">Nota</button>' +
         '<button class="btn-ghost" type="button" data-ev-del="' + esc(e.id) + '">Retirar</button></div></div>';
     }).join('') : '<div class="hint">Todavía no hay eventos.</div>';
@@ -882,57 +913,65 @@
     return n.length > 3 ? n.slice(0, 3).join(', ') + ' y ' + (n.length - 3) + ' más' : n.join(', ');
   }
   function eventoPorId(id) { return (S.data.eventos || []).filter(function (e) { return e.id === id; })[0]; }
+  /** Formulario de evento: los mismos campos (y desplegables) que la pestaña EVENTOS del Sheet, más los participantes. */
+  function tiposEvento() { var l = (S.data && S.data.tiposEvento) || TIPOS_EVENTO; return l.filter(function (x) { return !/^AVISO$/i.test(x); }); }
   function abrirFormEvento(e) {
+    e = e || {};
     var op = function (l, act) { return l.map(function (x) { return '<option' + (x === act ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join(''); };
-    abrirHoja('<div class="row"><h2>' + (e.id ? 'Editar evento' : e.tipo === 'Aviso' ? 'Nuevo aviso' : 'Nuevo evento') + '</h2><button class="btn-ghost" type="button" id="evf-volver">‹ Volver</button></div>' +
-      '<form id="evf" class="avf"><label for="ef-n">Nombre</label><input id="ef-n" maxlength="60" required placeholder="Ej. Alhambra Games 2027 · Toma de marcas viernes" value="' + esc(e.nombre || '') + '">' +
-      '<div class="two"><div><label for="ef-t">Tipo</label><select id="ef-t">' + op(TIPOS_EVENTO, e.tipo || 'Competición') + '</select></div>' +
-      '<div><label for="ef-p">Para</label><select id="ef-p">' + op(['Todos', 'Participantes', 'Box', 'Individual', 'Otro', 'Coach'], emailsPara(e.para).length ? 'Individual' : e.para || 'Participantes') + '</select></div></div>' +
-      '<div id="ef-ind" class="ind-box" hidden><div class="hint">Busca y toca los atletas que quieras (toca otra vez para quitar). Si no eliges a nadie, va para todo el grupo Individual.</div>' +
-      '<div id="ef-chips" class="chips-sel"></div><div id="ef-bus"></div></div>' +
-      '<div class="two"><div><label for="ef-i">Inicio</label><input id="ef-i" type="date" required value="' + esc(e.inicio || '') + '"></div>' +
-      '<div><label for="ef-f">Fin (si dura más de un día)</label><input id="ef-f" type="date" value="' + esc(e.fin && e.fin !== e.inicio ? e.fin : '') + '"></div></div>' +
-      '<div class="two"><div><label for="ef-h">Hora (opcional)</label><input id="ef-h" type="time" value="' + esc(e.hora || '') + '"></div>' +
-      '<div><label for="ef-l">Lugar (opcional)</label><input id="ef-l" maxlength="80" value="' + esc(e.lugar || '') + '"></div></div>' +
-      '<label for="ef-u">Enlace (opcional)</label><input id="ef-u" type="url" placeholder="https://… inscripción, info" value="' + esc(e.enlace || '') + '">' +
-      '<label for="ef-d">Descripción</label><textarea id="ef-d" rows="3" maxlength="1000" placeholder="Lo que leerán los atletas">' + esc(e.descripcion || '') + '</textarea>' +
-      '<label class="chk"><input type="checkbox" id="ef-a"' + (e.aviso ? ' checked' : '') + '> Aviso al entrar en la app (cada día entre inicio y fin, hasta que lo marquen como visto)</label>' +
-      '<button class="btn btn-primary" type="submit" id="ef-ok">Guardar</button></form>');
+    var tipos = tiposEvento(), tipo = e.tipo || 'Competición';
+    if (tipos.indexOf(tipo) < 0) tipos = tipos.concat([tipo]);
+    var campo = function (col, ayuda, html) { var m = /id="([\w-]+)"/.exec(html); return '<div class="cs"><label class="cs-col"' + (m ? ' for="' + m[1] + '"' : '') + '>' + col + '</label>' + html + (ayuda ? '<div class="hint">' + ayuda + '</div>' : '') + '</div>'; };
+    abrirHoja('<div class="row"><h2>' + (e.id ? 'Editar evento' : 'Nuevo evento') + '</h2><button class="btn-ghost" type="button" id="evf-volver">‹ Volver</button></div>' +
+      '<p class="hint">Los mismos campos que la pestaña EVENTOS del Sheet.</p>' +
+      '<form id="evf" class="avf cs-form">' +
+      campo('EVENTO', '', '<input id="ef-n" maxlength="60" required placeholder="Ej. Alhambra Games 2027 · DEKA Sevilla" value="' + esc(e.nombre || '') + '">') +
+      campo('TIPO', 'Si falta alguno, elige «＋ Nuevo tipo…»: queda guardado también en el Sheet (LISTAS).',
+        '<select id="ef-t">' + op(tipos, tipo) + '<option value="__nuevo">＋ Nuevo tipo…</option></select><input id="ef-tn" maxlength="30" placeholder="Nombre del tipo nuevo" hidden>') +
+      '<div class="two">' + campo('INICIO', '', '<input id="ef-i" type="date" required value="' + esc(e.inicio || '') + '">') +
+        campo('FIN', 'Si dura más de un día', '<input id="ef-f" type="date" value="' + esc(e.fin && e.fin !== e.inicio ? e.fin : '') + '">') + '</div>' +
+      '<div class="two">' + campo('HORA', '', '<input id="ef-h" type="time" value="' + esc(e.hora || '') + '">') +
+        campo('LUGAR', '', '<input id="ef-l" maxlength="80" value="' + esc(e.lugar || '') + '">') + '</div>' +
+      campo('ENLACE', 'Inscripción o información', '<input id="ef-u" type="url" placeholder="https://…" value="' + esc(e.enlace || '') + '">') +
+      campo('DESCRIPCIÓN', '', '<textarea id="ef-d" rows="3" maxlength="1000" placeholder="Lo que leerán los atletas">' + esc(e.descripcion || '') + '</textarea>') +
+      '<div class="two">' + campo('PARA', 'Quién lo ve en «Mis eventos»', '<select id="ef-p">' + op(['Participantes', 'Todos', 'Box', 'Individual', 'Otro', 'Coach'], /@/.test(e.para || '') ? 'Participantes' : e.para || 'Participantes') + '</select>') +
+        campo('INSCRIPCIÓN', 'Cómo se apuntan', '<select id="ef-ins">' + op(['Con aprobación', 'Libre', 'Cerrada'], e.inscripcion || 'Con aprobación') + '</select>') + '</div>' +
+      '<label class="chk"><input type="checkbox" id="ef-a"' + (e.aviso ? ' checked' : '') + '> AVISO AL ENTRAR · sale al abrir la app cada día entre inicio y fin, hasta que lo marquen como visto</label>' +
+      '<label class="chk"><input type="checkbox" id="ef-act"' + (e.activo === false ? '' : ' checked') + '> ACTIVO · desmárcalo para prepararlo sin que lo vean todavía</label>' +
+      campo('PARTICIPANTES', 'Toca un atleta para añadirlo o quitarlo. También pueden apuntarse ellos desde Menú → Mis eventos.',
+        '<div id="ef-chips" class="chips-sel"></div><div id="ef-bus"></div>') +
+      '<button class="btn btn-primary" type="submit" id="ef-ok">Guardar evento</button></form>');
     document.getElementById('evf-volver').onclick = abrirEventosCoach;
-    var ind = {}, busOk = false;
-    emailsPara(e.para).forEach(function (em) { ind[em] = atletaPorEmail(em); });
-    function chipsInd() {
-      var ks = Object.keys(ind);
-      document.getElementById('ef-chips').innerHTML = ks.length ? ks.map(function (k) { return '<button type="button" class="chip-x" data-quitar="' + esc(k) + '">' + esc(ind[k].nombre) + ' ×</button>'; }).join('') :
-        '<span class="hint">Nadie elegido → todo el grupo Individual.</span>';
+    var sel = {};
+    (e.participantes || []).forEach(function (a) { sel[a.email] = a; });
+    function chips() {
+      var ks = Object.keys(sel);
+      document.getElementById('ef-chips').innerHTML = ks.length ? ks.map(function (k) { return '<button type="button" class="chip-x" data-quitar="' + esc(k) + '">' + esc(sel[k].nombre) + ' ×</button>'; }).join('') :
+        '<span class="hint">Nadie todavía.</span>';
       var bus = document.getElementById('ef-bus'); if (bus && bus._pintar) bus._pintar();
     }
-    function verInd() {
-      var on = val('ef-p') === 'Individual';
-      document.getElementById('ef-ind').hidden = !on;
-      if (on && !busOk) {
-        busOk = true; chipsInd();
-        buscadorAtletas('ef-bus', function (a) { if (ind[a.email]) delete ind[a.email]; else ind[a.email] = a; chipsInd(); },
-          { soloActivos: true, sinConfirmar: true, marcado: function (a) { return !!ind[a.email]; } });
-      }
-    }
-    document.getElementById('ef-chips').onclick = function (ev) { var b = ev.target.closest('[data-quitar]'); if (b) { delete ind[b.dataset.quitar]; chipsInd(); } };
-    document.getElementById('ef-p').onchange = verInd; verInd();
+    chips();
+    document.getElementById('ef-chips').onclick = function (ev) { var b = ev.target.closest('[data-quitar]'); if (b) { delete sel[b.dataset.quitar]; chips(); } };
+    buscadorAtletas('ef-bus', function (a) { if (sel[a.email]) delete sel[a.email]; else sel[a.email] = a; chips(); },
+      { soloActivos: true, sinConfirmar: true, marcado: function (a) { return !!sel[a.email]; } });
     document.getElementById('ef-t').onchange = function () {
-      var t = this.value;
-      if (t === 'Aviso' || t === 'Inscripción') document.getElementById('ef-a').checked = true;
-      if (t === 'Competición') { document.getElementById('ef-p').value = 'Participantes'; verInd(); }
+      var t = this.value, nuevo = t === '__nuevo';
+      document.getElementById('ef-tn').hidden = !nuevo; if (nuevo) document.getElementById('ef-tn').focus();
+      if (t === 'Inscripción') document.getElementById('ef-a').checked = true;
+      if (t === 'Competición') document.getElementById('ef-p').value = 'Participantes';
     };
-    function paraFinal() { var p = val('ef-p'), ks = Object.keys(ind); return p === 'Individual' && ks.length ? ks.join(', ') : p; }
     document.getElementById('evf').onsubmit = function (ev) {
       ev.preventDefault();
+      var tipoF = val('ef-t') === '__nuevo' ? val('ef-tn') : val('ef-t');
+      if (!tipoF) { toast('Escribe el nombre del tipo nuevo.'); return; }
       var b = document.getElementById('ef-ok'); b.disabled = true; b.textContent = 'Guardando…';
-      api({ action: 'evento_guardar', evento: { id: e.id, nombre: val('ef-n'), tipo: val('ef-t'), para: paraFinal(), inicio: val('ef-i'), fin: val('ef-f'), hora: val('ef-h'),
-        lugar: val('ef-l'), enlace: val('ef-u'), descripcion: val('ef-d'), aviso: document.getElementById('ef-a').checked } }).then(function (r) {
+      api({ action: 'evento_guardar', evento: { id: e.id, nombre: val('ef-n'), tipo: tipoF, para: val('ef-p'), inicio: val('ef-i'), fin: val('ef-f'), hora: val('ef-h'),
+        lugar: val('ef-l'), enlace: val('ef-u'), descripcion: val('ef-d'), aviso: document.getElementById('ef-a').checked, activo: document.getElementById('ef-act').checked,
+        inscripcion: val('ef-ins'), emails: Object.keys(sel) } }).then(function (r) {
         if (!r.ok) throw new Error(r.detalle || r.error);
-        S.data.eventos = r.eventos; toast('Evento guardado');
-        if (!e.id && val('ef-p') === 'Participantes') abrirParticipantes(r.id); else abrirEventosCoach();
-      }).catch(function (er) { b.disabled = false; b.textContent = 'Guardar'; toast(mensajeError(er.message)); });
+        S.data.eventos = r.eventos; S._atletas = null;
+        if (tiposEvento().indexOf(tipoF) < 0) S.data.tiposEvento = (S.data.tiposEvento || TIPOS_EVENTO).concat([tipoF]);
+        toast('Evento guardado'); abrirEventosCoach();
+      }).catch(function (er) { b.disabled = false; b.textContent = 'Guardar evento'; toast(mensajeError(er.message)); });
     };
   }
   /** Elegir los atletas de un evento: buscador + chips; se guarda con confirmación. */
@@ -1054,7 +1093,7 @@
       var notasAct = (f.notas || []).filter(function (n) { return n.activa; });
       html += seccion('fi-notas', 'Notas', notasAct.length ? notasAct.map(function (n) {
         return '<div class="av-item"><div><b>' + esc(n.tipo) + '</b> <span class="hint">' + (n.fecha ? fechaCorta(n.fecha) : '') + (n.hasta ? ' – ' + fechaCorta(n.hasta) : '') +
-          ' · ' + (n.alcance === 'BLOQUE' ? 'bloque ' + esc(n.bloque || n.clave) : n.alcance === 'SEMANA' ? 'semana' : 'día') + (n.evento ? ' · ' + esc(n.evento) : '') + '</span><p>' + esc(n.texto) + '</p></div>' +
+          ' · ' + (n.alcance === 'BLOQUE' ? 'bloque ' + esc(n.bloque || n.clave) : n.alcance === 'SEMANA' ? 'semana' : n.alcance === 'FASE' ? 'fase ' + esc(cap(n.fase)) : 'día') + (n.evento ? ' · ' + esc(n.evento) : '') + (n.por ? ' · ' + esc(n.por) : '') + '</span><p>' + esc(n.texto) + '</p></div>' +
           '<button class="btn-ghost" type="button" data-nota-off="' + esc(n.id) + '">Retirar</button></div>';
       }).join('') : '<div class="hint">Sin notas activas.</div>', notasAct.length ? String(notasAct.length) : '');
       // RM editables
@@ -1081,8 +1120,9 @@
     }
     $app.innerHTML = html;
     document.getElementById('atras').onclick = function () { S.vista = 'ajustes'; S._abrir = 's-coach'; render(); };
-    var bn = document.getElementById('fi-nota'); if (bn) bn.onclick = function () { abrirFormNota({ email: f.atleta.email, nombre: f.atleta.nombre }, function () { abrirFicha(f.atleta.email); }); };
-    var ba = document.getElementById('fi-av'); if (ba) ba.onclick = function () { abrirFormEvento({ tipo: 'Aviso', aviso: true, para: f.atleta.email, inicio: S.data.hoy, nombre: '' }); };
+    var paraA = { modo: 'atletas', atletas: [{ email: f.atleta && f.atleta.email, nombre: f.atleta && f.atleta.nombre }] };
+    var bn = document.getElementById('fi-nota'); if (bn) bn.onclick = function () { abrirPublicar({ tab: 'nota', para: paraA, volver: function () { abrirFicha(f.atleta.email); } }); };
+    var ba = document.getElementById('fi-av'); if (ba) ba.onclick = function () { abrirPublicar({ tab: 'aviso', para: paraA, volver: function () { abrirFicha(f.atleta.email); } }); };
     var rf = document.getElementById('fi-rmf');
     if (rf) rf.onsubmit = function (ev) {
       ev.preventDefault();
@@ -1097,6 +1137,380 @@
     var ab = S._abrir; S._abrir = null; if (ab && document.getElementById(ab)) document.getElementById(ab).open = true;
   }
   function rpeTd(v) { return v == null || v === '' ? '<span class="hint">—</span>' : '<b style="color:' + rpeColor(String(Math.round(v))) + '">' + esc(v) + '</b>'; }
+
+  // =====================================================================
+  //  PUBLICAR (coach) · un solo formulario para avisos y notas, con el mismo «Para»:
+  //  Todos · Participantes de un evento · Atletas concretos (· un grupo, como opción avanzada)
+  // =====================================================================
+  var TIPOS_NOTA = ['Nota', 'Técnica', 'Carga', 'Adaptación', 'Estrategia', 'Movilidad', 'Ejercicio', 'Competición'];
+  var GRUPOS = ['Box', 'Individual', 'Otro', 'Coach'];
+
+  function eventosVivos() { return ((S.data && S.data.eventos) || []).filter(function (e) { return !e.pasado; }); }
+  function opciones(l, act) { return l.map(function (x) { var v = typeof x === 'string' ? x : x.v, t = typeof x === 'string' ? x : x.t; return '<option value="' + esc(v) + '"' + (v === act ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join(''); }
+
+  /** Selector «Para» reutilizable. pre: { modo: todos|evento|atletas|grupo, evento, atletas: [{email,nombre}], grupo } */
+  function htmlPara(id, pre) {
+    pre = pre || {};
+    var m = pre.modo || 'todos', evs = eventosVivos();
+    var radio = function (v, t) { return '<label class="para-op"><input type="radio" name="' + id + '-m" value="' + v + '"' + (m === v ? ' checked' : '') + '><span>' + t + '</span></label>'; };
+    return '<fieldset class="para" id="' + id + '"><legend>Para</legend><div class="para-ops">' +
+      radio('todos', 'Todos') + radio('evento', 'Participantes de un evento') + radio('atletas', 'Atletas concretos') + '</div>' +
+      '<div class="para-x" data-x="evento"' + (m === 'evento' ? '' : ' hidden') + '>' +
+        (evs.length ? '<select id="' + id + '-ev" aria-label="Evento">' + opciones(evs.map(function (e) { return { v: e.nombre, t: e.nombre + ' · ' + (e.nParticipantes || 0) + ' atleta' + (e.nParticipantes === 1 ? '' : 's') }; }), pre.evento) + '</select>' :
+          '<div class="hint">No hay eventos activos. Créalo en Menú → Coach → Eventos.</div>') + '</div>' +
+      '<div class="para-x ind-box" data-x="atletas"' + (m === 'atletas' ? '' : ' hidden') + '><div class="hint">Busca y toca los atletas (toca otra vez para quitar).</div>' +
+        '<div id="' + id + '-chips" class="chips-sel"></div><div id="' + id + '-bus"></div></div>' +
+      '<details class="para-av"' + (m === 'grupo' ? ' open' : '') + '><summary>Avanzado: un grupo</summary>' +
+        '<label class="para-op"><input type="radio" name="' + id + '-m" value="grupo"' + (m === 'grupo' ? ' checked' : '') + '><span>Grupo</span></label>' +
+        '<select id="' + id + '-gr" aria-label="Grupo">' + opciones(GRUPOS, pre.grupo) + '</select></details></fieldset>';
+  }
+  function enlazarPara(id, pre) {
+    var sel = {}, busOk = false, fs = document.getElementById(id);
+    ((pre && pre.atletas) || []).forEach(function (a) { sel[a.email] = a; });
+    function chips() {
+      var ks = Object.keys(sel), el = document.getElementById(id + '-chips');
+      el.innerHTML = ks.length ? ks.map(function (k) { return '<button type="button" class="chip-x" data-quitar="' + esc(k) + '">' + esc(sel[k].nombre) + ' ×</button>'; }).join('') : '<span class="hint">Nadie elegido todavía.</span>';
+      var b = document.getElementById(id + '-bus'); if (b && b._pintar) b._pintar();
+    }
+    function modo() { var r = fs.querySelector('input[name="' + id + '-m"]:checked'); return r ? r.value : 'todos'; }
+    function ver() {
+      var m = modo();
+      fs.querySelectorAll('.para-x').forEach(function (x) { x.hidden = x.dataset.x !== m; });
+      if (m === 'atletas' && !busOk) {
+        busOk = true; chips();
+        buscadorAtletas(id + '-bus', function (a) { if (sel[a.email]) delete sel[a.email]; else sel[a.email] = a; chips(); },
+          { soloActivos: true, sinConfirmar: true, marcado: function (a) { return !!sel[a.email]; } });
+      }
+    }
+    fs.addEventListener('change', ver);
+    document.getElementById(id + '-chips').onclick = function (ev) { var b = ev.target.closest('[data-quitar]'); if (b) { delete sel[b.dataset.quitar]; chips(); } };
+    ver();
+    return function () {
+      var m = modo();
+      return { modo: m, evento: m === 'evento' ? val(id + '-ev') : '', emails: m === 'atletas' ? Object.keys(sel) : [], grupo: m === 'grupo' ? val(id + '-gr') : '',
+        nombres: Object.keys(sel).map(function (k) { return sel[k].nombre; }) };
+    };
+  }
+  function paraValido(p) {
+    if (p.modo === 'evento' && !p.evento) return 'Elige el evento.';
+    if (p.modo === 'atletas' && !p.emails.length) return 'Elige al menos un atleta.';
+    return '';
+  }
+
+  /** opts: { tab: 'aviso'|'nota', para: {…}, alcance, fase, nota: {tipo, texto, video}, volver } */
+  function abrirPublicar(opts) {
+    opts = opts || {};
+    var d = S.data || {}, x = d.dias && d.dias[S.dia], tab = opts.tab || 'aviso';
+    var fases = (d.ciclo && d.ciclo.fases) || [];
+    var bloques = x ? x.bloques.map(function (b) { return { v: String(b.n), t: b.n + ' · ' + cap(b.titulo) }; }) : [];
+    var n = opts.nota || {}, al = opts.alcance || 'Día';
+    abrirHoja('<div class="row"><h2>Publicar</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      '<div class="seg pub-tabs" role="group" aria-label="Qué publicar"><button type="button" data-pub="aviso" aria-pressed="' + (tab === 'aviso') + '">Aviso</button>' +
+      '<button type="button" data-pub="nota" aria-pressed="' + (tab === 'nota') + '">Nota del coach</button></div>' +
+      '<p class="hint" id="pub-expl"></p>' +
+      '<form id="pubf" class="avf">' + htmlPara('pp', opts.para) +
+      // --- aviso ---
+      '<div data-solo="aviso"><label for="pa-t">Título</label><input id="pa-t" maxlength="80" placeholder="Ej. Box cerrado el sábado por la tarde">' +
+      '<label for="pa-m">Mensaje</label><textarea id="pa-m" rows="3" maxlength="1000" placeholder="Lo que verán al abrir la app"></textarea>' +
+      '<div class="two"><div><label for="pa-d">Desde</label><input id="pa-d" type="date" value="' + esc(d.hoy || '') + '"></div><div><label for="pa-h">Hasta (opcional)</label><input id="pa-h" type="date"></div></div>' +
+      '<div class="two"><div><label for="pa-hr">Hora (opcional)</label><input id="pa-hr" type="time"></div><div><label for="pa-u">Enlace (opcional)</label><input id="pa-u" type="url" placeholder="https://…"></div></div></div>' +
+      // --- nota ---
+      '<div data-solo="nota"><div id="pn-plw"></div>' +
+      '<label>Dónde se ve</label><div class="seg" role="group" id="pn-al">' + ['Bloque', 'Día', 'Semana', 'Fase'].map(function (a) {
+        return '<button type="button" data-val="' + a + '" aria-pressed="' + (a === al) + '">' + (a === 'Bloque' ? 'Un bloque' : a === 'Día' ? 'El día' : a === 'Semana' ? 'La semana' : 'La fase') + '</button>'; }).join('') + '</div>' +
+      '<div id="pn-fw"><div class="two"><div><label for="pn-f">Fecha</label><input id="pn-f" type="date" value="' + esc(x ? x.iso : d.hoy || '') + '"></div>' +
+      '<div><label for="pn-h">Repetir hasta (opcional)</label><input id="pn-h" type="date"></div></div></div>' +
+      '<div id="pn-bw"><label for="pn-b">Bloque</label>' + (bloques.length ? '<select id="pn-b">' + opciones(bloques) + '</select>' : '<input id="pn-b" inputmode="numeric" placeholder="nº de bloque">') +
+      '<div class="hint">Los bloques son los del día que estás viendo; si cambias la fecha, comprueba el número.</div></div>' +
+      '<div id="pn-fsw"><label for="pn-fs">Fase del ciclo</label>' + (fases.length ? '<select id="pn-fs">' + opciones(fases.map(function (f) { return f.nombre; }), opts.fase) + '</select>' : '<div class="hint">No hay fases en FABRIK.</div>') +
+      '<div class="hint">Se ve al tocar la fase arriba (Acumulación, Transformación…), durante toda la fase.</div></div>' +
+      '<label for="pn-t">Tipo</label><select id="pn-t">' + opciones(TIPOS_NOTA, n.tipo || 'Nota') + '</select>' +
+      '<label for="pn-x">Nota</label><textarea id="pn-x" rows="4" maxlength="1500" placeholder="Ej. Hoy prioriza la técnica: 75 % máximo en el C&amp;J">' + esc(n.texto || '') + '</textarea>' +
+      '<label for="pn-v">Vídeo (opcional)</label><input id="pn-v" type="url" placeholder="Enlace de YouTube" value="' + esc(n.video || '') + '">' +
+      '<label class="chk"><input type="checkbox" id="pn-pl"> Guardar también como plantilla</label></div>' +
+      '<button class="btn btn-primary" type="submit" id="pub-ok">Publicar</button></form>');
+    var leerPara = enlazarPara('pp', opts.para);
+    var alcance = al;
+    function pintarTab() {
+      document.querySelectorAll('[data-solo]').forEach(function (z) { z.hidden = z.dataset.solo !== tab; });
+      document.querySelectorAll('[data-pub]').forEach(function (z) { z.setAttribute('aria-pressed', String(z.dataset.pub === tab)); });
+      document.getElementById('pub-expl').textContent = tab === 'aviso' ?
+        'Sale al abrir la app cada día del periodo, hasta que el atleta pulsa «Visto». Lo tiene siempre en Menú → Avisos.' :
+        'Se ve dentro del día, del bloque, de la semana o al tocar la fase. Queda en tu histórico (Menú → Coach → Mis notas).';
+      document.getElementById('pub-ok').textContent = tab === 'aviso' ? 'Publicar aviso' : 'Guardar nota';
+      if (tab === 'nota') cargarPlantillas();
+    }
+    function pintarAlcance() {
+      document.getElementById('pn-bw').hidden = alcance !== 'Bloque';
+      document.getElementById('pn-fsw').hidden = alcance !== 'Fase';
+      document.getElementById('pn-fw').hidden = alcance === 'Fase';
+    }
+    document.querySelector('.pub-tabs').onclick = function (ev) { var b = ev.target.closest('[data-pub]'); if (b) { tab = b.dataset.pub; pintarTab(); } };
+    document.getElementById('pn-al').onclick = function (ev) {
+      var b = ev.target.closest('[data-val]'); if (!b) return;
+      alcance = b.dataset.val;
+      this.querySelectorAll('button').forEach(function (z) { z.setAttribute('aria-pressed', String(z === b)); });
+      pintarAlcance();
+    };
+    pintarTab(); pintarAlcance();
+    document.getElementById('pubf').onsubmit = function (ev) {
+      ev.preventDefault();
+      var p = leerPara(), err = paraValido(p);
+      if (err) { toast(err); return; }
+      var b = document.getElementById('pub-ok'), txt = b.textContent; b.disabled = true; b.textContent = 'Guardando…';
+      var fallo = function (e) { b.disabled = false; b.textContent = txt; toast(mensajeError(e.message)); };
+      if (tab === 'aviso') {
+        if (!val('pa-t')) { fallo(new Error('Pon un título.')); return; }
+        api({ action: 'aviso_guardar', aviso: { titulo: val('pa-t'), mensaje: val('pa-m'), desde: val('pa-d'), hasta: val('pa-h'), hora: val('pa-hr'), enlace: val('pa-u'),
+          para: p.modo === 'evento' ? 'Participantes' : p.modo === 'atletas' ? 'Atletas' : p.modo === 'grupo' ? p.grupo : 'Todos', evento: p.evento, emails: p.emails } })
+          .then(function (r) { if (!r.ok) throw new Error(r.detalle || r.error); toast('Aviso publicado'); S.avisosCoach = r.avisos; cerrarHoja(); if (opts.volver) opts.volver(); else cargar(S.data.semana); })
+          .catch(fallo);
+        return;
+      }
+      if (!val('pn-x')) { fallo(new Error('Escribe la nota.')); return; }
+      var nota = { alcance: alcance, fecha: val('pn-f'), hasta: val('pn-h'), bloque: alcance === 'Bloque' ? val('pn-b') : '', fase: alcance === 'Fase' ? val('pn-fs') : '',
+        tipo: val('pn-t'), texto: val('pn-x'), video: val('pn-v'), evento: p.evento, emails: p.emails, grupo: p.grupo };
+      var guardarPl = document.getElementById('pn-pl').checked;
+      api({ action: 'nota_crear', nota: nota }).then(function (r) {
+        if (!r.ok) throw new Error(r.detalle || r.error);
+        if (guardarPl) api({ action: 'plantilla_guardar', plantilla: { tipo: nota.tipo, texto: nota.texto, video: nota.video } }).catch(function () {});
+        toast(r.creadas > 1 ? 'Nota guardada para ' + r.creadas + ' atletas' : 'Nota guardada'); cerrarHoja();
+        if (opts.volver) opts.volver(); else cargar(S.data.semana);
+      }).catch(fallo);
+    };
+  }
+
+  // ---------- plantillas ----------
+  function cargarPlantillas() {
+    var w = document.getElementById('pn-plw'); if (!w || w._ok) return; w._ok = 1;
+    var pintar = function (l) {
+      S.plantillas = l;
+      if (!document.getElementById('pn-plw')) return;
+      w.innerHTML = l.length ? '<label for="pn-pls">Plantilla</label><div class="pl-row"><select id="pn-pls"><option value="">— Elegir una plantilla —</option>' +
+        l.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.nombre) + '</option>'; }).join('') + '</select>' +
+        '<button type="button" class="btn-ghost sm" id="pn-plx" hidden>Borrar</button></div>' : '';
+      var s = document.getElementById('pn-pls'); if (!s) return;
+      s.onchange = function () {
+        var p = l.filter(function (x) { return x.id === s.value; })[0];
+        document.getElementById('pn-plx').hidden = !p;
+        if (!p) return;
+        document.getElementById('pn-t').value = p.tipo; document.getElementById('pn-x').value = p.texto; document.getElementById('pn-v').value = p.video || '';
+      };
+      document.getElementById('pn-plx').onclick = function () {
+        if (!confirmar(this, '¿Borrar plantilla?')) return;
+        api({ action: 'plantilla_borrar', id: s.value }).then(function (r) { if (r.ok) { w._ok = 0; w.innerHTML = ''; pintar(r.plantillas); toast('Plantilla borrada'); } });
+      };
+    };
+    if (S.plantillas) pintar(S.plantillas);
+    api({ action: 'plantillas' }).then(function (r) { if (r.ok) pintar(r.plantillas); }).catch(function () {});
+  }
+
+  // ---------- Mis notas (histórico del coach) ----------
+  function abrirMisNotas() {
+    abrirHoja('<div class="row"><h2>Mis notas</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      '<div class="two"><input class="search" id="mn-q" type="search" placeholder="Buscar texto, atleta o evento"><select id="mn-e" aria-label="Qué notas ver"><option value="act">Activas</option><option value="todas">Todas</option></select></div>' +
+      '<button class="btn" type="button" id="mn-nueva">＋ Nueva nota</button><div id="mn-l"><div class="hint">Cargando…</div></div>');
+    document.getElementById('mn-nueva').onclick = function () { abrirPublicar({ tab: 'nota', volver: abrirMisNotas }); };
+    var lista = [];
+    function pintar() {
+      var el = document.getElementById('mn-l'); if (!el) return;
+      var q = norm(val('mn-q')).trim(), solo = val('mn-e') === 'act';
+      var f = lista.filter(function (n) { return (!solo || n.activa) && (!q || norm(n.texto + ' ' + (n.atletas || []).join(' ') + ' ' + (n.evento || '')).indexOf(q) >= 0); });
+      el.innerHTML = f.length ? f.map(function (n, i) {
+        var para = n.atletas && n.atletas.length ? n.atletas.join(', ') : n.evento ? 'Participantes · ' + n.evento : n.paraTodos && /^GRUPO/i.test(n.paraTodos) ? n.paraTodos : 'Todos';
+        var donde = n.alcance === 'FASE' ? 'Fase ' + cap(n.fase) : n.alcance === 'BLOQUE' ? 'Bloque ' + (n.bloque || n.clave) : n.alcance === 'SEMANA' ? 'Semana' : 'Día';
+        return '<div class="mn' + (n.activa ? '' : ' off') + '"><div class="mn-top"><span class="ev-tipo">' + esc(n.tipo) + '</span><span class="hint">' + (n.fecha ? fechaCorta(n.fecha) : '') +
+          (n.hasta && n.alcance !== 'FASE' ? ' – ' + fechaCorta(n.hasta) : '') + ' · ' + esc(donde) + (n.activa ? '' : ' · retirada') + '</span></div>' +
+          '<div class="mn-para">Para: <b>' + esc(para) + '</b></div><p>' + esc(n.texto) + '</p>' +
+          '<div class="mn-acc"><button class="btn-ghost sm" type="button" data-mn-dup="' + i + '">Duplicar</button>' +
+          (n.activa ? '<button class="btn-ghost sm" type="button" data-mn-off="' + i + '">Retirar</button>' : '') + '</div></div>';
+      }).join('') : '<div class="hint">' + (lista.length ? 'Nada coincide.' : 'Todavía no has puesto ninguna nota.') + '</div>';
+      el._f = f;
+    }
+    document.getElementById('mn-q').oninput = pintar; document.getElementById('mn-e').onchange = pintar;
+    document.getElementById('mn-l').onclick = function (ev) {
+      var b = ev.target.closest('[data-mn-dup],[data-mn-off]'); if (!b) return;
+      var n = this._f[+(b.dataset.mnDup || b.dataset.mnOff)];
+      if (b.dataset.mnDup !== undefined) {
+        var para = n.atletas && n.atletas.length ? { modo: 'atletas', atletas: [] } : n.evento ? { modo: 'evento', evento: n.evento } : { modo: 'todos' };
+        abrirPublicar({ tab: 'nota', para: para, alcance: n.alcance === 'FASE' ? 'Fase' : n.alcance === 'BLOQUE' ? 'Bloque' : n.alcance === 'SEMANA' ? 'Semana' : 'Día', fase: n.fase,
+          nota: { tipo: n.tipo, texto: n.texto, video: n.video }, volver: abrirMisNotas });
+        return;
+      }
+      if (!confirmar(b, '¿Retirar?')) return;
+      b.disabled = true;
+      n.ids.reduce(function (pr, id) { return pr.then(function () { return api({ action: 'nota_off', id: id, mias: true }); }); }, Promise.resolve())
+        .then(function (r) { if (r && r.ok) { lista = r.notas; pintar(); toast('Nota retirada'); } }).catch(function (e) { toast(mensajeError(e.message)); });
+    };
+    api({ action: 'notas_mias' }).then(function (r) { if (!r.ok) throw new Error(r.detalle || r.error); lista = r.notas; pintar(); })
+      .catch(function (e) { var el = document.getElementById('mn-l'); if (el) el.innerHTML = '<div class="err">' + esc(mensajeError(e.message)) + '</div>'; });
+  }
+
+  // ---------- Avisos del coach (con «visto por») ----------
+  function abrirAvisosCoach() {
+    abrirHoja('<div class="row"><h2>Avisos</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      '<button class="btn btn-primary" type="button" id="ac-nuevo">＋ Nuevo aviso</button><div id="ac-l"><div class="hint">Cargando…</div></div>');
+    document.getElementById('ac-nuevo').onclick = function () { abrirPublicar({ tab: 'aviso', volver: abrirAvisosCoach }); };
+    var pintar = function (l) {
+      var el = document.getElementById('ac-l'); if (!el) return;
+      el.innerHTML = l.length ? l.map(function (a) {
+        var L = a.lectura || { total: 0, vistos: 0, faltan: [] }, pc = L.total ? Math.round(L.vistos / L.total * 100) : 0;
+        return '<div class="ac"><div class="mn-top"><b>' + esc(a.titulo) + '</b><span class="hint">' + fechaCorta(a.desde) + (a.hasta ? ' – ' + fechaCorta(a.hasta) : '') + '</span></div>' +
+          '<div class="mn-para">Para: <b>' + esc(a.paraTexto) + '</b>' + (a.por ? ' · ' + esc(a.por) : '') + '</div>' + (a.mensaje ? '<p>' + esc(a.mensaje) + '</p>' : '') +
+          '<div class="lect"><div class="lect-bar"><i style="width:' + pc + '%"></i></div><span>Visto por <b>' + L.vistos + ' de ' + L.total + '</b></span></div>' +
+          (L.faltan.length ? '<details class="hist"><summary>Faltan (' + L.faltan.length + ')</summary><div class="exp-body hint">' + L.faltan.map(esc).join(', ') + '</div></details>' : '') +
+          (a.esEvento ? '' : '<div class="mn-acc"><button class="btn-ghost sm" type="button" data-ac-off="' + esc(a.id) + '">Retirar</button></div>') + '</div>';
+      }).join('') : '<div class="hint">No hay avisos activos de hoy en adelante.</div>';
+    };
+    document.getElementById('ac-l').onclick = function (ev) {
+      var b = ev.target.closest('[data-ac-off]'); if (!b || !confirmar(b, '¿Retirar?')) return;
+      api({ action: 'aviso_off', id: b.dataset.acOff }).then(function (r) { if (r.ok) { pintar(r.avisos); toast('Aviso retirado'); } });
+    };
+    api({ action: 'avisos_lista' }).then(function (r) { if (r.ok) pintar(r.avisos); })
+      .catch(function (e) { var el = document.getElementById('ac-l'); if (el) el.innerHTML = '<div class="err">' + esc(mensajeError(e.message)) + '</div>'; });
+  }
+
+  // ---------- Fases del ciclo: al tocarlas, objetivos y notas ----------
+  function notasDeFase(nombre) { return ((S.data && S.data.notasFase) || {})[norm(nombre).trim()] || []; }
+  function abrirFase(i) {
+    var c = S.data && S.data.ciclo, f = c && c.fases[i]; if (!f) return;
+    var notas = notasDeFase(f.nombre), staff = S.data.staff;
+    abrirHoja('<div class="row"><h2>' + esc(cap(f.nombre)) + '</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      '<div class="hint">' + (f.inicio ? fechaCorta(f.inicio) + ' – ' + fechaCorta(f.fin) + ' · ' : '') + f.semanas + ' semanas' +
+      (i === c.actual ? ' · <b>fase actual (semana ' + c.semana + ')</b>' : i < c.actual ? ' · terminada' : ' · próxima') + '</div>' +
+      (f.objetivos ? '<div class="part-lbl" style="margin-top:12px">Objetivos</div><div class="goals">' + esc(f.objetivos) + '</div>' : '') +
+      '<div class="part-lbl" style="margin-top:12px">Notas del coach para esta fase</div>' +
+      (notas.length ? notas.map(function (n) {
+        return '<div class="wk-item' + (n.evento ? ' ev' : '') + '"><span class="hint">' + esc(n.tipo) + (n.evento ? ' · ' + esc(n.evento) : '') + (n.atleta ? ' · solo para ti' : '') + (n.por ? ' · ' + esc(n.por) : '') + '</span><p>' + esc(n.texto) + '</p>' +
+          (n.video ? '<button type="button" class="btn-ghost sm" data-video-url="' + esc(n.video) + '" data-video-nombre="' + esc(f.nombre) + '">▶ Vídeo</button>' : '') + '</div>';
+      }).join('') : '<div class="hint">Sin notas para esta fase.</div>') +
+      (staff ? '<button class="btn" type="button" id="fa-nota">＋ Nota para esta fase</button>' : ''));
+    var b = document.getElementById('fa-nota');
+    if (b) b.onclick = function () { abrirPublicar({ tab: 'nota', alcance: 'Fase', fase: f.nombre }); };
+  }
+
+  // ---------- Calendario (mes) + añadir a Google Calendar / iPhone ----------
+  var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  function eventosCalendario() {
+    return ((S.data && S.data.eventos) || []).filter(function (e) { return e.inicio && (e.mio || e.visible) && !/^AVISO$/i.test(e.tipo); });
+  }
+  function renderCalendario() {
+    var d = S.data || {}, hoy = d.hoy || new Date().toISOString().slice(0, 10);
+    var mes = S.calMes || hoy.slice(0, 7), y = +mes.slice(0, 4), m = +mes.slice(5, 7);
+    var evs = eventosCalendario(), primero = new Date(Date.UTC(y, m - 1, 1)), dow = (primero.getUTCDay() + 6) % 7, dias = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    var celdas = '';
+    for (var k = 0; k < dow; k++) celdas += '<span class="cal-d vacio"></span>';
+    for (var dd = 1; dd <= dias; dd++) {
+      var iso = mes + '-' + (dd < 10 ? '0' : '') + dd;
+      var ese = evs.filter(function (e) { return iso >= e.inicio && iso <= (e.fin || e.inicio); });
+      celdas += '<button type="button" class="cal-d' + (iso === hoy ? ' hoy' : '') + (iso === S.calDia ? ' sel' : '') + (ese.some(function (e) { return e.mio; }) ? ' mio' : ese.length ? ' hay' : '') + '" data-cal-dia="' + iso + '">' +
+        '<b>' + dd + '</b>' + (ese.length ? '<i>' + ese.slice(0, 3).map(function (e) { return '<em class="' + (e.mio ? 'm' : '') + '"></em>'; }).join('') + '</i>' : '') + '</button>';
+    }
+    var delMes = evs.filter(function (e) { return (e.fin || e.inicio) >= mes + '-01' && e.inicio <= mes + '-31'; });
+    var lista = S.calDia ? evs.filter(function (e) { return S.calDia >= e.inicio && S.calDia <= (e.fin || e.inicio); }) : delMes;
+    var mios = evs.filter(function (e) { return e.mio && !e.pasado; });
+    var html = cabeceraVista('Calendario', 'Menú') +
+      '<section class="cal"><div class="cal-nav"><button class="icon-btn" type="button" data-cal-mes="-1" aria-label="Mes anterior">‹</button><b>' + cap(MESES[m - 1]) + ' ' + y + '</b>' +
+      '<button class="icon-btn" type="button" data-cal-mes="1" aria-label="Mes siguiente">›</button></div>' +
+      '<div class="cal-sem">' + ['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' +
+      '<div class="cal-grid">' + celdas + '</div><div class="cal-ley"><span><em class="m"></em> Mis eventos</span><span><em></em> Otros eventos</span></div></section>' +
+      '<div class="part-lbl">' + (S.calDia ? 'Eventos del ' + fechaCorta(S.calDia) + ' <button type="button" class="btn-ghost sm" data-cal-dia="">Ver todo el mes</button>' : 'Eventos de ' + MESES[m - 1]) + '</div>' +
+      (lista.length ? lista.map(function (e) { return tarjetaEvento(e, false); }).join('') : '<div class="hint">No hay eventos.</div>') +
+      (mios.length ? '<div class="part-lbl" style="margin-top:14px">Llévatelos a tu calendario</div>' +
+        '<button class="btn" type="button" data-ics-todos>Añadir todos mis eventos (' + mios.length + ') · iPhone / Outlook</button>' +
+        '<div class="hint">En Google Calendar, añádelos uno a uno desde cada evento («Google Calendar»). Se guardan como «Fabrik: nombre del evento».</div>' : '');
+    $app.innerHTML = html;
+    document.getElementById('atras').onclick = function () { S.vista = 'ajustes'; S._abrir = 's-eventos'; render(); };
+  }
+  function abrirCalendario() { S.vista = 'calendario'; S.calDia = null; render(); window.scrollTo({ top: 0 }); }
+
+  function fechaGcal(iso, hora, masHoras) {
+    if (!hora) return iso.replace(/-/g, '');
+    var h = hora.split(':').map(Number), d = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10), h[0] + (masHoras || 0), h[1] || 0));
+    return d.toISOString().slice(0, 16).replace(/[-:]/g, '') + '00';
+  }
+  function enlaceGoogle(e) {
+    var fin = e.fin || e.inicio, dts = e.hora ? fechaGcal(e.inicio, e.hora) + '/' + fechaGcal(e.inicio, e.hora, 2) :
+      e.inicio.replace(/-/g, '') + '/' + new Date(Date.parse(fin + 'T12:00:00Z') + 864e5).toISOString().slice(0, 10).replace(/-/g, '');
+    return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent('Fabrik: ' + e.nombre) + '&dates=' + dts +
+      (e.hora ? '&ctz=Europe/Madrid' : '') + (e.lugar ? '&location=' + encodeURIComponent(e.lugar) : '') +
+      '&details=' + encodeURIComponent((e.descripcion || '') + (e.enlace ? '\n' + e.enlace : '') + '\n\n' + (CFG.urlApp || ''));
+  }
+  function enlaceIcs(ids) { return CFG.apiUrl + '?ics=' + encodeURIComponent(ids.join(',')); }
+  function botonesCalendario(e) {
+    return '<div class="cal-add"><a class="btn-ghost sm" href="' + esc(enlaceGoogle(e)) + '" target="_blank" rel="noopener">＋ Google Calendar</a>' +
+      '<a class="btn-ghost sm" href="' + esc(enlaceIcs([e.id])) + '" target="_blank" rel="noopener">＋ iPhone / Outlook</a></div>';
+  }
+
+  // ---------- Notificaciones (Firebase Cloud Messaging) ----------
+  function pushPosible() { return !!(S.data && S.data.push && CFG.vapidKey && 'Notification' in window && 'serviceWorker' in navigator && window.PushManager); }
+  function pushEstado() {
+    if (!pushPosible()) return esIOS() && !esStandalone() ? 'instalar' : 'no';
+    return Notification.permission === 'granted' && leer('pa-push-ok') ? 'activas' : Notification.permission === 'denied' ? 'bloqueadas' : 'apagadas';
+  }
+  function esIOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+  function cargarMessaging() {
+    if (window.firebase && firebase.messaging) return Promise.resolve();
+    var v = ((document.querySelector('script[src*="firebase-app-compat"]') || {}).src || '').match(/firebasejs\/([\d.]+)\//);
+    return new Promise(function (ok, ko) {
+      var s = document.createElement('script'); s.src = 'https://www.gstatic.com/firebasejs/' + (v ? v[1] : '10.12.2') + '/firebase-messaging-compat.js';
+      s.onload = ok; s.onerror = function () { ko(new Error('No se pudo cargar el servicio de notificaciones.')); }; document.head.appendChild(s);
+    });
+  }
+  function activarPush(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Activando…'; }
+    return Notification.requestPermission().then(function (perm) {
+      if (perm !== 'granted') throw new Error('Has dicho que no a las notificaciones. Puedes cambiarlo en los ajustes del navegador.');
+      return cargarMessaging();
+    }).then(function () { return navigator.serviceWorker.ready; })
+      .then(function (reg) { return firebase.messaging().getToken({ vapidKey: CFG.vapidKey, serviceWorkerRegistration: reg }); })
+      .then(function (token) { if (!token) throw new Error('No se pudo activar.'); return api({ action: 'push_token', token: token }).then(function () { guardar('pa-push-ok', token); }); })
+      .then(function () { toast('Notificaciones activadas en este móvil'); if (S.vista === 'ajustes') { S._abrir = 's-push'; render(); } else render(); })
+      .catch(function (e) { if (btn) { btn.disabled = false; btn.textContent = 'Activar notificaciones'; } toast(e.message); });
+  }
+  /** Al abrir la app con notificaciones activas: renueva el token (caduca) sin preguntar. */
+  function renovarPush() {
+    if (!pushPosible() || Notification.permission !== 'granted' || !leer('pa-push-ok') || S._pushRenovado) return;
+    S._pushRenovado = true;
+    cargarMessaging().then(function () { return navigator.serviceWorker.ready; })
+      .then(function (reg) { return firebase.messaging().getToken({ vapidKey: CFG.vapidKey, serviceWorkerRegistration: reg }); })
+      .then(function (t) { if (t) { guardar('pa-push-ok', t); return api({ action: 'push_token', token: t }); } }).catch(function () {});
+  }
+  function htmlPush() {
+    var e = pushEstado();
+    if (e === 'activas') return '<div class="hint">✓ Activadas en este móvil. Te avisaremos de avisos y notas nuevas del coach.</div>';
+    if (e === 'bloqueadas') return '<div class="hint">Las tienes bloqueadas para esta web. Actívalas en los ajustes del navegador o del móvil.</div>';
+    if (e === 'instalar') return '<div class="hint">En iPhone, primero instala la app en la pantalla de inicio (apartado «Instalar la app») y ábrela desde ahí.</div>';
+    if (e === 'no') return '<div class="hint">' + (S.data && S.data.push ? 'Este navegador no admite notificaciones.' : 'El coach todavía no ha activado las notificaciones.') + '</div>';
+    return '<button class="btn btn-primary" type="button" data-push-on>Activar notificaciones</button><div class="hint">Te llega un aviso al móvil cuando el coach publica algo para ti.</div>';
+  }
+  /** Tarjeta discreta en la semana, una sola vez, para animar a activarlas. */
+  function bannerPush() {
+    if (pushEstado() !== 'apagadas' || leer('pa-push-banner')) return '';
+    return '<div class="push-banner"><span>🔔 Activa las notificaciones para enterarte de los avisos del coach.</span>' +
+      '<div class="two-btn"><button class="btn-ghost sm" type="button" data-push-no>Ahora no</button><button class="btn btn-primary sm" type="button" data-push-on>Activar</button></div></div>';
+  }
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target, b;
+    if ((b = t.closest('[data-fase]'))) { abrirFase(+b.dataset.fase); return; }
+    if ((b = t.closest('[data-cal-mes]'))) {
+      var base = S.calMes || (S.data.hoy || '').slice(0, 7), y = +base.slice(0, 4), m = +base.slice(5, 7) + Number(b.dataset.calMes);
+      if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+      S.calMes = y + '-' + (m < 10 ? '0' : '') + m; S.calDia = null; render(); return;
+    }
+    if ((b = t.closest('[data-cal-dia]'))) { S.calDia = b.dataset.calDia || null; render(); return; }
+    if (t.closest('[data-ics-todos]')) {
+      window.open(enlaceIcs(eventosCalendario().filter(function (e) { return e.mio && !e.pasado; }).map(function (e) { return e.id; })), '_blank'); return;
+    }
+    if ((b = t.closest('[data-push-on]'))) { activarPush(b); return; }
+    if (t.closest('[data-push-no]')) { guardar('pa-push-banner', 1); var x = t.closest('.push-banner'); if (x) x.remove(); return; }
+    if (t.closest('#co-publicar')) { abrirPublicar({}); return; }
+    if (t.closest('[data-solic-ev]')) { abrirSolicitudes(); return; }
+    if (t.closest('#co-misnotas')) { abrirMisNotas(); return; }
+    if (t.closest('#co-avisos')) { abrirAvisosCoach(); return; }
+    if (t.closest('#ir-calendario')) { abrirCalendario(); return; }
+  });
 
   // ---------- Mis marcas ----------
   // ---------- Mis marcas ----------
@@ -2365,9 +2779,23 @@
     if ((b = t.closest('[data-av-visto]'))) { marcarVisto(b.dataset.avVisto); if (S.vista === 'ajustes') { S._abrir = 's-avisos'; render(); } return; }
     if ((b = t.closest('[data-ir-evento]'))) { abrirAjustes('s-eventos'); setTimeout(function () { var el = document.getElementById('ev-' + b.dataset.irEvento); if (el) { el.open = true; el.scrollIntoView({ block: 'center' }); } }, 30); return; }
     if ((b = t.closest('[data-unirme]'))) {
-      if (!confirmar(b, '¿Pedir apuntarme? Toca otra vez')) return;
+      var idU = b.dataset.unirme === 'sel' ? val('ev-unirme') : b.dataset.unirme;
+      if (!idU) { toast('Elige un evento.'); return; }
+      var evU = ((S.data && S.data.eventos) || []).filter(function (e) { return e.id === idU; })[0] || {};
+      if (!confirmar(b, evU.inscripcion === 'Libre' ? '¿Apuntarme? Toca otra vez' : '¿Pedir plaza? Toca otra vez')) return;
       b.disabled = true;
-      api({ action: 'evento_solicitar', id: b.dataset.unirme }).then(ok).then(function (r) { S.data.eventos = r.eventos; S._abrir = 's-eventos'; render(); toast('Solicitud enviada al coach'); }).catch(falloApi(b));
+      api({ action: 'evento_solicitar', id: idU }).then(ok).then(function (r) {
+        S.data.eventos = r.eventos; S.data.misSolicitudes = r.misSolicitudes; S._abrir = 's-eventos'; render();
+        toast(r.estado === 'apuntado' ? 'Apuntado a ' + (evU.nombre || 'el evento') : 'Solicitud enviada al coach');
+      }).catch(falloApi(b));
+      return;
+    }
+    if ((b = t.closest('[data-salir]'))) {
+      if (!confirmar(b, '¿Desapuntarme? Toca otra vez')) return;
+      b.disabled = true;
+      api({ action: 'evento_salir', id: b.dataset.salir }).then(ok).then(function (r) {
+        S.data.eventos = r.eventos; S.data.misSolicitudes = r.misSolicitudes; S._abrir = 's-eventos'; render(); toast('Ya no estás apuntado');
+      }).catch(falloApi(b));
       return;
     }
     if ((b = t.closest('[data-tema]'))) { guardar('pa-tema', b.dataset.tema); aplicarTema(b.dataset.tema); S._abrir = 's-tema'; render(); return; }
@@ -2397,10 +2825,11 @@
     if (t.closest('#co-atletas')) { abrirBuscarAtleta(); return; }
     if (t.closest('#co-solic')) { abrirSolicitudes(); return; }
     if (t.closest('#co-eventos')) { abrirEventosCoach(); return; }
-    if (t.closest('#co-notas')) { abrirFormNota({}); return; }
+
     if ((b = t.closest('[data-ev-edit]'))) { abrirFormEvento(eventoPorId(b.dataset.evEdit)); return; }
     if ((b = t.closest('[data-ev-part]'))) { abrirParticipantes(b.dataset.evPart); return; }
-    if ((b = t.closest('[data-ev-nota]'))) { var ev0 = eventoPorId(b.dataset.evNota); abrirFormNota({ evento: ev0.nombre }, abrirEventosCoach); return; }
+    if ((b = t.closest('[data-ev-nota]'))) { var ev0 = eventoPorId(b.dataset.evNota); abrirPublicar({ tab: 'nota', para: { modo: 'evento', evento: ev0.nombre }, volver: abrirEventosCoach }); return; }
+    if ((b = t.closest('[data-ev-aviso]'))) { var ev1 = eventoPorId(b.dataset.evAviso); abrirPublicar({ tab: 'aviso', para: { modo: 'evento', evento: ev1.nombre }, volver: abrirEventosCoach }); return; }
     if ((b = t.closest('[data-ev-del]'))) {
       if (!confirmar(b, '¿Retirar?')) return;
       api({ action: 'evento_borrar', id: b.dataset.evDel }).then(ok).then(function (r) { S.data.eventos = r.eventos; pintarEventosCoach(); toast('Evento retirado'); }).catch(falloApi(b));
@@ -2439,7 +2868,7 @@
   // Tras 5 minutos sin usarla, el primer toque (o volver a la pestaña) busca versión nueva de la app
   // y recarga los datos. Si hay versión nueva, la página se recarga sola una vez (con el service worker
   // «primero red», una recarga basta para ver la última versión).
-  var WEB_VERSION = 'v4 · web 14';
+  var WEB_VERSION = 'v4 · web 15';
   var ultimaActividad = Date.now(), habiaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller), recargando = false;
   function recargarApp() {
     if (recargando) return;

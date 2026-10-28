@@ -526,3 +526,84 @@ body.con-reloj{overflow:hidden}
 .rl-pip svg{width:20px;height:20px}
 .rl-pip:active{transform:scale(.95)}
 .rl-pip.on{background:var(--verde);color:#000}
+/* ===== v4.3 · fases tocables ===== */
+button.phase{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;min-width:0;cursor:pointer;border-radius:8px;padding:4px 2px;min-height:44px}
+button.phase:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.phase:active{background:var(--surface-2)}
+.ph-n{font-style:normal;display:inline-grid;place-items:center;min-width:18px;height:18px;border-radius:9px;background:var(--accent);color:var(--accent-ink);font-size:11px;padding:0 5px;margin-left:2px;vertical-align:1px;letter-spacing:0}
+.ph-hint{margin-top:4px}
+/* ===== Publicar: selector «Para» ===== */
+.para{border:1px solid var(--line);border-radius:14px;padding:8px 12px 12px;margin:4px 0 8px;display:flex;flex-direction:column;gap:8px}
+.para legend{font-size:13px;font-weight:700;color:var(--muted);padding:0 4px}
+.para-ops{display:flex;flex-direction:column;gap:2px}
+.para-op{display:flex!important;align-items:center;gap:10px;min-height:40px;margin:0!important;font-size:15px!important;color:var(--fg)!important;font-weight:500!important;cursor:pointer}
+.para-op input{width:20px;height:20px;accent-color:var(--accent);flex:none}
+.para-x select{width:100%}
+.para-av summary{font-size:13px;color:var(--muted);cursor:pointer;padding:4px 0}
+.para-av select{width:100%;margin-top:4px}
+.pub-tabs{margin:2px 0 4px}
+.pl-row{display:flex;gap:8px;align-items:center}
+.pl-row select{flex:1;min-width:0}
+/* ===== Mis notas / avisos del coach ===== */
+.mn,.ac{border:1px solid var(--line);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;background:var(--surface)}
+.mn.off{opacity:.6}
+.mn-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.mn-para{font-size:14px;color:var(--muted)}
+.mn-para b{color:var(--fg);font-weight:600}
+.mn p,.ac p{margin:2px 0;white-space:pre-line;font-size:15px}
+.mn-acc{display:flex;gap:8px;justify-content:flex-end}
+#mn-l,#ac-l{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.lect{display:flex;align-items:center;gap:10px;font-size:14px}
+.lect-bar{flex:1;height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden}
+.lect-bar i{display:block;height:100%;background:var(--rpe-low)}
+.co-pub{grid-column:1/-1;font-size:16px!important;padding:14px 8px!important}
+.coach-grid .pend,.evc .pend{color:var(--rojo-txt,var(--danger));border-color:currentColor}
+/* ===== Formulario de evento (campos del Sheet) ===== */
+.cs{display:flex;flex-direction:column;gap:4px;min-width:0}
+.cs-col{font-family:var(--f-board);font-weight:700!important;font-size:12px!important;letter-spacing:.08em;color:var(--muted)}
+.cs .hint{font-size:12px}
+.cs-form .two{align-items:start}
+/* ===== Mis eventos ===== */
+.unirme{border:1px dashed var(--line);border-radius:14px;padding:10px 12px;margin-bottom:10px;display:flex;flex-direction:column;gap:6px}
+.unirme label{font-size:13px;font-weight:700;color:var(--muted)}
+.sol-mia{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.sol-mia:last-child{border-bottom:0}
+.est{font-family:var(--f-board);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;border-radius:6px;padding:2px 8px;flex:none}
+.est-pendiente{background:color-mix(in srgb,var(--rpe-mid) 18%,transparent);color:var(--fg)}
+.est-aprobada{background:color-mix(in srgb,var(--rpe-low) 18%,transparent);color:var(--fg)}
+.est-rechazada,.est-cancelada{background:var(--surface-2);color:var(--muted)}
+.ev-part{font-size:14px;margin:6px 0}
+.ev-avs{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.ev-av{border-left:3px solid var(--rojo-txt,var(--rpe-high));padding:2px 0 2px 10px}
+.ev-av p{margin:2px 0 0;font-size:14px;white-space:pre-line}
+.cal-add{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.cal-add a{text-decoration:none;color:inherit}
+/* ===== Calendario ===== */
+.cal{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:12px;margin-bottom:12px}
+.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cal-nav b{font-family:var(--f-display);font-size:22px;text-transform:uppercase;letter-spacing:.02em}
+.cal-sem,.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-sem span{text-align:center;font-size:12px;font-weight:700;color:var(--muted)}
+.cal-d{all:unset;box-sizing:border-box;min-height:46px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;font-size:15px}
+.cal-d.vacio{cursor:default}
+.cal-d b{font-weight:600}
+.cal-d.hoy b{color:var(--accent);font-weight:800}
+.cal-d.hay{background:var(--surface-2)}
+.cal-d.mio{background:color-mix(in srgb,var(--accent) 16%,var(--surface))}
+.cal-d.sel{outline:2px solid var(--accent)}
+.cal-d:focus-visible{outline:2px solid var(--accent)}
+.cal-d i{display:flex;gap:2px}
+.cal-d em,.cal-ley em{display:inline-block;width:6px;height:6px;border-radius:3px;background:var(--muted)}
+.cal-d em.m,.cal-ley em.m{background:var(--accent)}
+.cal-ley{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-top:8px;justify-content:center}
+.cal-ley span{display:flex;align-items:center;gap:5px}
+/* ===== Notificaciones ===== */
+.push-banner{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:12px;margin:10px 0}
+.push-banner .two-btn{display:flex;gap:8px;justify-content:flex-end}
+.btn.sm{padding:8px 14px;font-size:14px}
+/* accesibilidad · etiquetas rojas pequeñas con contraste suficiente */
+.ev-tipo,.seg-tag,.cd,.cd.sm{color:var(--rojo-txt,var(--rpe-high))}
+.pl-row .btn,.pl-row .btn-ghost{width:auto;flex:none}
+.pl-row select{flex:1 1 auto;min-width:0;width:auto}
+.para .results,.cs .results{max-height:280px;overflow:auto;overscroll-behavior:contain}
+.unirme select{padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit;font-size:16px;min-height:44px}
