@@ -449,6 +449,16 @@ body.con-reloj{overflow:hidden}
 .rl-rd span{font:700 15px var(--f-board);color:var(--verde);opacity:.75;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px}
 .rl-t{width:100%;display:flex;justify-content:center;min-height:0}
 .rl-t svg{width:100%;max-height:34vh;height:auto}
+/* v17: números más grandes. Vertical: minutos sobre segundos; horizontal: una línea */
+.rl-t-h{display:none;width:100%;justify-content:center}
+.rl-t-v{display:flex;flex-direction:column;align-items:center;gap:1.5vh;width:100%}
+.rl-t .rl-t-v svg{max-height:27vh;width:auto;max-width:100%;height:27vh}
+.reloj .rl-caja{padding:10px 8px}
+.reloj .rl-rd svg{height:clamp(38px,8vw,64px)}
+@media (orientation:landscape){
+  .rl-t-h{display:flex}
+  .rl-t-v{display:none}
+}
 .led .off{fill:rgba(255,255,255,.045)}
 .led.rojo .on{fill:var(--rojo)} .led.rojo{filter:drop-shadow(0 0 6px rgba(255,43,28,.75)) drop-shadow(0 0 18px rgba(255,43,28,.35))}
 .led.verde .on{fill:var(--verde)} .led.verde{filter:drop-shadow(0 0 6px rgba(32,240,90,.7)) drop-shadow(0 0 16px rgba(32,240,90,.3))}
@@ -477,9 +487,9 @@ body.con-reloj{overflow:hidden}
   .rl-caja{grid-column:1;grid-row:2/4;padding:10px 14px}
   .rl-led{flex-direction:row;align-items:center;justify-content:center;gap:18px}
   .rl-rd{flex-direction:column;align-items:center;gap:2px}
-  .rl-rd svg{height:22vh}
+  .rl-rd svg{height:18vh}
   .rl-t{width:auto;flex:1}
-  .rl-t svg{max-height:58vh;width:100%}
+  .rl-t svg{max-height:72vh;width:100%}
   .rl-info{grid-column:2;grid-row:2;justify-content:center;align-self:center}
   .rl-tit{font-size:clamp(18px,3.2vw,30px);overflow-wrap:anywhere}
   .rl-sub,.rl-est{font-size:15px}
@@ -615,3 +625,49 @@ button.phase:active{background:var(--surface-2)}
 .pl-row select{flex:1 1 auto;min-width:0;width:auto}
 .para .results,.cs .results{max-height:280px;overflow:auto;overscroll-behavior:contain}
 .unirme select{padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit;font-size:16px;min-height:44px}
+/* ===== web 17 ===== */
+/* marcador de guardado en cada bloque */
+.b-save{all:unset;box-sizing:border-box;cursor:pointer;flex:none;margin-left:auto;width:40px;height:40px;display:grid;place-items:center;border-radius:10px;color:var(--muted)}
+.b-head .b-rpe+.b-save{margin-left:0}
+.b-save svg{width:22px;height:22px}
+.b-save.on{color:var(--accent);--g-fill:currentColor}
+.b-save.pide{color:var(--danger);outline:2px solid var(--danger);outline-offset:-2px}
+.b-save:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.b-save:disabled{opacity:.5}
+/* avisos «siempre visible» */
+.notice.fijo{border-width:2px}
+.fijo-txt{display:block;font-size:13px;color:var(--muted);margin-top:4px}
+.av-siempre{margin:4px 0 0;font-size:14px;color:var(--muted);text-align:center}
+.av-item.fijo{border-color:color-mix(in srgb,var(--rpe-high) 45%,transparent)}
+/* leaderboard: el día se toca para ver el metcon */
+.rk-dia{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:baseline;justify-content:space-between;gap:10px;width:100%}
+.rk-ver{font:600 13px var(--f-board);text-transform:uppercase;letter-spacing:.05em;color:var(--accent);flex:none}
+.rk-dia:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.rk-metcon{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+/* Mis guardados */
+.gd-sem{border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin-bottom:8px}
+.gd-sem>summary{cursor:pointer;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.gd-cnt{font:700 13px var(--f-board);color:var(--muted)}
+.gd-dia{margin-top:8px}
+.gd-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
+.gd-item:last-child{border-bottom:0}
+.gd-item .chk{min-width:0;flex:1}
+.gd-item .chk span{min-width:0;overflow-wrap:anywhere}
+.gd-item.hecho .chk span{text-decoration:line-through;color:var(--muted)}
+.gd-acc{display:flex;gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end;margin-top:6px}
+.gd-item .gd-acc{margin-top:0}
+.gd-met{border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin-bottom:8px}
+.gd-met>summary{cursor:pointer}
+/* login: «otro correo» */
+#mailf[hidden]{display:none}
+/* horizontal: el contador de rondas pasa a la esquina y el reloj usa todo el ancho del marcador */
+@media (orientation:landscape) and (max-height:600px){
+  .reloj{grid-template-columns:1fr minmax(150px,22%)}
+  .rl-caja{position:relative;padding:8px 10px}
+  .rl-led{display:block}
+  .reloj .rl-rd{position:absolute;top:8px;left:12px;flex-direction:row;align-items:flex-end;gap:6px;z-index:1}
+  .reloj .rl-rd svg{height:12vh}
+  .reloj .rl-rd span{font-size:12px;padding-bottom:2px}
+  .rl-t{width:100%}
+  .rl-t-h svg{width:100%;max-height:74vh}
+}

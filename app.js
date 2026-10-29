@@ -87,21 +87,85 @@
     for (var i = 0; i < RE_LEV.length; i++) if (RE_LEV[i][0].test(n)) return RE_LEV[i][1];
     return null;
   }
+  // ---------- porcentajes → kilos (v17) ----------
+  //  · Cada movimiento usa SU marca: no hace falta tener todos los RM rellenos.
+  //  · Vale cualquier marca en kilos que el atleta haya registrado (Push Press, Overhead Squat…).
+  //  · «sobre tu / respecto a / considerando tu / basándote en / de tu / se cogen del» + movimiento
+  //    = el % se calcula sobre ESE movimiento (en esa línea, o en toda la parte si esa frase va en una línea sin cifras).
+  var ALIAS_MOV = [
+    [/\bHPC\b|HANG\s+POWER\s+CLEAN/, 'POWER CLEAN'],
+    [/\bHPS\b|HANG\s+POWER\s+SNATCH/, 'POWER SNATCH'],
+    [/\bOHS\b/, 'OVERHEAD SQUAT'],
+    [/\bBS\b/, 'BACK SQUAT'],
+    [/\bFS\b/, 'FRONT SQUAT']
+  ];
+  // derivados olímpicos: el % es del olímpico (snatch deadlift, clean pull, snatch balance…)
+  var RE_DERIVADO = /\b(POWER\s+SNATCH|POWER\s+CLEAN|SNATCH|CLEAN)\s+(?:HIGH\s+)?(?:DEADLIFT|DL|PULL|BALANCE|SHRUG|SEGMENT)/;
+  var RE_BASE = /(?:SOBRE|RESPECTO\s+(?:A|AL|DE)|CONSIDERANDO|BASANDOTE\s+EN|BASANDOSE\s+EN|BASADO\s+EN|EN\s+BASE\s+A(?:L)?|DE\s+TU|SE\s+COGEN?\s+DE(?:L)?|SE\s+CALCULAN?\s+(?:SOBRE|DE(?:L)?))\s+(.+)/;
+
+  /** Marcas del atleta en kilos: sus 1RM + la mejor marca en kilos de cada movimiento de «Mis marcas». */
+  function marcasKilos() {
+    var m = {}, rm = (S.user && S.user.marcas) || {};
+    Object.keys(rm).forEach(function (k) { if (rm[k] > 0) m[norm(k).replace(/\s+/g, ' ').trim()] = Number(rm[k]); });
+    ((S.data && S.data.misMarcas) || []).forEach(function (x) {
+      if (x.tipo !== 'Kilos') return;
+      var v = parseFloat(String(x.valor).replace(',', '.')), k = norm(x.marca).replace(/\s+/g, ' ').trim();
+      if (v > 0 && !(m[k] >= v)) m[k] = v;
+    });
+    return m;
+  }
+  function reNombre(nom) { return new RegExp('(?:^|[^A-Z])' + nom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+') + '(?![A-Z])'); }
+
+  /** El movimiento que aparece en un texto (o null): marcas propias (la más larga primero), derivados, abreviaturas y los básicos. */
+  function movimientoEn(texto, marcas) {
+    marcas = marcas || marcasKilos();
+    var n = norm(texto).replace(/\s+/g, ' ');
+    var propias = Object.keys(marcas).filter(function (k) { return LEVANTAMIENTOS.indexOf(k) < 0; }).sort(function (a, b) { return b.length - a.length; });
+    var d = n.match(RE_DERIVADO);
+    if (d) return d[1].replace(/\s+/g, ' ');
+    for (var i = 0; i < propias.length; i++) if (reNombre(propias[i]).test(n)) return propias[i];
+    for (var j = 0; j < ALIAS_MOV.length; j++) if (ALIAS_MOV[j][0].test(n)) return ALIAS_MOV[j][1];
+    return levantamiento(n);
+  }
+  /** Si el texto dice «sobre tu X» (o similar), el movimiento X; si no, null. */
+  function baseExplicita(texto, marcas) {
+    var m = norm(texto).replace(/\s+/g, ' ').match(RE_BASE);
+    return m ? movimientoEn(m[1].replace(/^(?:TU|TUS|EL|LA|SU|LOS|DE)\s+/, ''), marcas) : null;
+  }
+  /** Base para toda una parte: una línea con «sobre tu X» sin cifras de % (p. ej. «*% SOBRE TU POWER CLEAN»). */
+  function baseDeParte(texto, marcas) {
+    var lin = String(texto || '').split('\n');
+    for (var i = 0; i < lin.length; i++) {
+      if (/\d\s*%/.test(lin[i])) continue;
+      var b = baseExplicita(lin[i], marcas);
+      if (b) return b;
+    }
+    return null;
+  }
+  /** Movimiento base de una línea. Prioridad: frase en la línea › frase en la parte › movimiento de la línea › de la parte › del bloque. */
+  function baseLinea(lineaTxt, ctx, marcas) {
+    var mov = baseExplicita(lineaTxt, marcas) || ctx.baseParte || movimientoEn(lineaTxt, marcas) || ctx.parte || ctx.bloque || null;
+    if (ctx.desdePower && mov === 'SNATCH') mov = 'POWER SNATCH';
+    return mov;
+  }
   function conKilos(lineaHtml, lineaTxt, ctx) {
-    var marcas = (S.user && S.user.marcas) || {};
-    if (!/%/.test(lineaTxt)) return lineaHtml;
-    var lev = levantamiento(lineaTxt) || ctx.parte || ctx.bloque;
-    if (ctx.desdePower && lev === 'SNATCH') lev = 'POWER SNATCH';
-    var rm = lev && marcas[lev];
+    if (!/\d\s*%/.test(lineaTxt)) return lineaHtml;
+    var marcas = ctx.marcas || marcasKilos(), mov = baseLinea(lineaTxt, ctx, marcas), rm = mov && marcas[mov];
     if (!rm) return lineaHtml;
-    return lineaHtml.replace(/(\d+(?:[.,]\d+)?(?:\/\d+(?:[.,]\d+)?)*)\s*%/g, function (todo, nums) {
-      var kg = nums.split('/').map(function (x) { return Math.round(rm * parseFloat(x.replace(',', '.')) / 100 * 2) / 2; });
-      return todo + '<span class="kg" title="' + esc(lev) + ' ' + rm + ' kg">' + kg.join('/') + ' kg</span>';
+    return lineaHtml.replace(/(\d+(?:[.,]\d+)?(?:\s*%?\s*\/\s*\d+(?:[.,]\d+)?)*)\s*%/g, function (todo, nums) {
+      var vals = nums.replace(/%/g, '').split('/').map(function (x) { return parseFloat(x.replace(',', '.')); });
+      if (vals.some(function (x) { return !(x > 0 && x <= 150); })) return todo;
+      var kg = vals.map(function (x) { return Math.round(rm * x / 100 * 2) / 2; });
+      return todo + '<span class="kg" title="' + esc(cap(mov)) + ' ' + rm + ' kg">' + kg.join('/') + ' kg</span>';
     });
   }
   function pizarra(texto, ctx) {
+    var marcas = marcasKilos(), c = {};
+    Object.keys(ctx || {}).forEach(function (k) { c[k] = ctx[k]; });
+    c.marcas = marcas;
+    c.baseParte = baseDeParte(texto, marcas) || c.baseBloque || null;
     return String(texto || '').split('\n').map(function (l) {
-      return conKilos(conVideos(esc(l)), l, ctx);
+      return conKilos(conVideos(esc(l)), l, c);
     }).join('\n');
   }
 
@@ -175,11 +239,11 @@
       '<p>Entra con la cuenta que le diste a Gabi.</p>' +
       '<button class="btn btn-primary" id="gbtn" type="button">Entrar con Google</button>' +
       (CFG.microsoft ? '<button class="btn" id="msbtn" type="button">Entrar con Microsoft (Outlook, Hotmail)</button>' : '') +
-      '<div class="or">u otro correo</div>' +
-      '<form id="mailf" class="field"><label for="mail">Tu correo</label>' +
+      '<button class="btn" id="otrobtn" type="button" aria-expanded="' + !!S.loginOtro + '" aria-controls="mailf">✉ Entrar con otro correo</button>' +
+      '<form id="mailf" class="field"' + (S.loginOtro ? '' : ' hidden') + '><label for="mail">Tu correo (Yahoo, Outlook, Hotmail, iCloud…)</label>' +
       '<input id="mail" type="email" autocomplete="email" inputmode="email" required placeholder="ej. tu@yahoo.es · @outlook.com">' +
-      '<button class="btn" type="submit" id="mailbtn">Enviarme el enlace para entrar</button></form>' +
-      '<div class="hint">Te llega un correo con un enlace: ábrelo en este mismo dispositivo y entras sin contraseña.</div>' +
+      '<button class="btn btn-primary" type="submit" id="mailbtn">Enviarme el enlace para entrar</button>' +
+      '<div class="hint">Te llega un correo con un enlace: ábrelo en este mismo dispositivo y entras sin contraseña.</div></form>' +
       '<div class="hint">¿Es tu primera vez? <button class="link" type="button" data-tab="registro">Regístrate</button></div>';
     var registro =
       '<p>¿Aún no tienes acceso? Pídelo aquí. Gabi lo aprueba y después entras en <b>Acceso</b> con este mismo correo.</p>' +
@@ -191,8 +255,8 @@
     $app.innerHTML =
       '<section class="login">' +
       '<div class="brand">Fabrik Program</div>' +
-      '<div class="seg login-tabs" role="tablist"><button type="button" role="tab" data-tab="acceso" aria-pressed="' + !reg + '">Acceso</button>' +
-      '<button type="button" role="tab" data-tab="registro" aria-pressed="' + reg + '">Registro</button></div>' +
+      '<div class="seg login-tabs" role="group" aria-label="Acceso o registro"><button type="button" data-tab="acceso" aria-pressed="' + !reg + '">Acceso</button>' +
+      '<button type="button" data-tab="registro" aria-pressed="' + reg + '">Registro</button></div>' +
       (reg ? registro : acceso) + aviso + redesHtml() +
       '</section>';
     [].forEach.call($app.querySelectorAll('[data-tab]'), function (b) { b.onclick = function () { pantallaLogin(null, b.dataset.tab); }; });
@@ -228,6 +292,10 @@
         if (e.code === 'auth/account-exists-with-different-credential') return pantallaLogin({ t: 'Ese correo ya entró antes con otro método (Google o enlace). Usa ese mismo método.' });
         if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') pantallaLogin({ t: 'No se pudo entrar con Microsoft (' + e.code + ').' });
       });
+    };
+    document.getElementById('otrobtn').onclick = function () {
+      var f = document.getElementById('mailf'); S.loginOtro = f.hidden; f.hidden = !f.hidden; this.setAttribute('aria-expanded', String(!f.hidden));
+      if (!f.hidden) document.getElementById('mail').focus();
     };
     document.getElementById('mailf').onsubmit = function (ev) {
       ev.preventDefault();
@@ -359,9 +427,9 @@
     var html = '<div class="day-title"><h1>' + NOMBRE_DIA[x.nombre] + ' ' + diaMes(x.iso) + '</h1>' +
       (x.rpe ? '<div class="rpe-pill" style="--c:' + rpeColor(x.rpe) + '"><b>' + esc(x.rpe) + '</b><span>' + (x.rpe === 'Z2' ? 'Recovery' : 'RPE del día') + '</span></div>' : '') + '</div>';
     if (x.foco && x.foco.length) html += '<div class="focus">' + x.foco.map(function (f) { return '<span>' + esc(cap(f)) + '</span>'; }).join('') + '</div>';
-    html += ((d.avisos && d.avisos[x.iso]) || []).map(function (a) {
-      return '<button class="notice" type="button" data-aviso="' + esc(a.id) + '"><span class="lbl">' + esc(a.tipo && a.tipo !== 'Aviso' ? a.tipo : 'Aviso') + (a.hora ? ' · ' + esc(a.hora) : '') + '</span><b>' + esc(a.titulo) + '</b>' +
-        (a.mensaje ? '<span class="txt">' + esc(a.mensaje) + '</span>' : '') + '</button>';
+    html += ((d.avisos && d.avisos[x.iso]) || []).filter(function (a) { return !avisoOculto(a); }).map(function (a) {
+      return '<button class="notice' + (a.siempre ? ' fijo' : '') + '" type="button" data-aviso="' + esc(a.id) + '"><span class="lbl">' + esc(a.tipo && a.tipo !== 'Aviso' ? a.tipo : 'Aviso') + (a.hora ? ' · ' + esc(a.hora) : '') + '</span><b>' + esc(a.titulo) + '</b>' +
+        (a.mensaje ? '<span class="txt">' + esc(a.mensaje) + '</span>' : '') + (a.siempre ? '<span class="fijo-txt">📌 ' + esc(txtSiempre(a)) + '</span>' : '') + '</button>';
     }).join('');
     html += htmlCuentaAtras(d);
     html += notasCoachHtml(delDia, 'para hoy');
@@ -414,9 +482,10 @@
 
   function bloque(b, pers, x, d) {
     var todo = b.partes.map(function (p) { return p.etiqueta + '\n' + p.texto; }).join('\n');
-    var ctxB = { bloque: levantamiento(b.titulo), desdePower: /DEL POWER SNATCH/.test(norm(todo)) };
+    var mk = marcasKilos();
+    var ctxB = { bloque: movimientoEn(b.titulo, mk), desdePower: /DEL POWER SNATCH/.test(norm(todo)), baseBloque: baseDeParte(todo, mk) };
     function parte(p) {
-      var ctx = { bloque: ctxB.bloque, desdePower: ctxB.desdePower, parte: levantamiento(p.texto) || levantamiento(p.etiqueta) };
+      var ctx = { bloque: ctxB.bloque, desdePower: ctxB.desdePower, baseBloque: ctxB.baseBloque, parte: movimientoEn(p.texto, mk) || movimientoEn(p.etiqueta, mk) };
       var etq = p.tipo === 'adapt' ? '' : p.etiqueta;
       var tm = tmBoton(p, b, x);
       return '<div class="part' + (tm ? ' has-tm' : '') + '">' + tm + (etq ? '<div class="part-lbl">' + esc(etq) + '</div>' : '') +
@@ -441,7 +510,7 @@
 
     return '<article class="block" id="b-' + b.n + '">' +
       '<div class="b-head"><span class="b-num">' + (b.n || '•') + '</span><span class="b-title">' + esc(b.titulo) + '</span>' +
-      (b.rpe ? '<span class="b-rpe" style="--c:' + rpeColor(b.rpe) + '">RPE ' + esc(b.rpe) + '</span>' : '') + '</div>' +
+      (b.rpe ? '<span class="b-rpe" style="--c:' + rpeColor(b.rpe) + '">RPE ' + esc(b.rpe) + '</span>' : '') + botonGuardar(x, b) + '</div>' +
       notasCoachHtml(mias, 'para este bloque') +
       (prep.length ? '<details><summary>Calentamiento y activación</summary><div class="exp-body">' + prep.map(parte).join('') + '</div></details>' : '') +
       main.map(parte).join('') +
@@ -564,16 +633,19 @@
       email_no_valido: 'Revisa el correo.', demasiadas_solicitudes: 'Hay muchas solicitudes ahora mismo. Prueba en un rato.', sexo_no_valido: 'Elige chico o chica.', falta_nombre: 'Escribe tu nombre y apellidos.', falta_marca: 'Pon un nombre a la marca.',
       valor_no_valido: 'Revisa el valor (el tiempo en minutos y segundos).', tipo_no_valido: 'Elige un tipo válido.', falta_ejercicio: 'Escribe el ejercicio.',
       video_no_valido: 'El vídeo tiene que ser un enlace.', tiempo_no_valido: 'Revisa el tiempo: minutos y segundos (los segundos de 0 a 59).', falta_bloque: 'Elige el bloque.',
-      nota_vacia: 'Escribe la nota.', evento_repetido: 'Ya hay un evento activo con ese nombre.', evento_no_encontrado: 'Ese evento no existe.', no_encontrado: 'Ya no existe.',
+      nota_vacia: 'Escribe la nota.', evento_repetido: 'Ya hay un evento activo con ese nombre.', evento_no_encontrado: 'Ese evento no existe.', no_encontrado: 'Ya no existe.', confirmar_borrado: 'Es un metcon guardado: confírmalo para borrarlo.',
       faltan_campos: 'Rellena todos los campos.', fechas_no_validas: 'La fecha de fin es anterior a la de inicio.', marca_no_valida: 'Marca no válida.', atleta_no_encontrado: 'No encuentro a ese atleta.', solicitud_no_encontrada: 'Esa solicitud ya estaba resuelta.', fecha_no_valida: 'Revisa la fecha.', aviso_vacio: 'Escribe un título o un mensaje.' }[m] || 'No se pudo guardar. Revisa la conexión.';
   }
   // ---------- avisos (eventos con «aviso al entrar») ----------
   // Salen cada día al entrar, hasta que el atleta pulsa «Visto».
   function avisoVisto(id) { return (S.data.valoraciones && (S.data.valoraciones.leidos || []).indexOf(id) >= 0) || leer('pa-visto-' + id); }
+  /** Un aviso «siempre visible» no se puede ocultar; los demás desaparecen del día al marcarlos como vistos. */
+  function avisoOculto(a) { return !a.siempre && avisoVisto(a.id); }
+  function txtSiempre(a) { return (a.por || 'El coach') + ' lo ha marcado como siempre visible'; }
   function avisoHoyCerrado(id) { return leer('pa-av-' + id + '-' + S.data.hoy); }
   function abrirAvisosPendientes(d) {
     if (!$scrim.hidden || !d.avisos) return;
-    var pend = (d.avisos[d.hoy] || []).filter(function (a) { return !avisoVisto(a.id) && !avisoHoyCerrado(a.id); });
+    var pend = (d.avisos[d.hoy] || []).filter(function (a) { return !avisoOculto(a) && !avisoHoyCerrado(a.id); });
     if (pend.length) mostrarAviso(pend[0], d.hoy, true);
   }
   function mostrarAviso(a, iso, auto) {
@@ -582,9 +654,10 @@
     abrirHoja('<div class="notice-modal"><div class="lbl">' + esc(a.tipo || 'Aviso') + ' · ' + esc(cuando) + (a.hora ? ' · ' + esc(a.hora) : '') + '</div>' +
       '<h2>' + esc(a.titulo) + '</h2>' + (a.mensaje ? '<p>' + esc(a.mensaje) + '</p>' : '') + (a.lugar ? '<p class="hint">📍 ' + esc(a.lugar) + '</p>' : '') + '</div>' +
       (a.enlace ? '<a class="btn btn-primary" href="' + esc(a.enlace) + '" target="_blank" rel="noopener">Abrir enlace</a>' : '') +
+      (a.siempre ? '<p class="av-siempre">📌 ' + esc(txtSiempre(a)) + '</p><button class="btn" type="button" data-av-cerrar="' + esc(a.id) + '">Cerrar</button>' :
       '<div class="two-btn"><button class="btn" type="button" data-av-cerrar="' + esc(a.id) + '">Cerrar</button>' +
       (avisoVisto(a.id) ? '<button class="btn" type="button" data-close>Ya marcado como visto</button>' :
-        '<button class="btn' + (a.enlace ? '' : ' btn-primary') + '" type="button" data-av-visto="' + esc(a.id) + '">Visto, no mostrar más</button>') + '</div>');
+        '<button class="btn' + (a.enlace ? '' : ' btn-primary') + '" type="button" data-av-visto="' + esc(a.id) + '">Visto, no mostrar más</button>') + '</div>'));
     if (auto) guardar('pa-av-' + a.id + '-' + S.data.hoy, true);
   }
   function marcarVisto(id) {
@@ -593,6 +666,7 @@
     (S.data.eventos || []).forEach(function (e) { if (e.id === id) e.visto = true; });
     api({ action: 'aviso_visto', id: id }).catch(function () {});
     cerrarHoja(); toast('Marcado como visto. Lo tienes en Menú → Avisos.');
+    if (!S.vista) render();   // desaparece del día (y sale el siguiente aviso pendiente, si lo hay)
   }
 
   // ---------- aviso breve en pantalla ----------
@@ -648,6 +722,7 @@
     html += '<button class="set-link" type="button" id="ir-calendario"><span class="set-ico">▦</span>Calendario de eventos<span class="go">›</span></button>';
     html += seccion('s-avisos', 'Avisos', htmlAvisos(avisos), nuevosAv ? String(nuevosAv) : '', '!');
     html += seccion('s-push', 'Notificaciones', htmlPush(), pushEstado() === 'activas' ? 'activas' : '', '🔔');
+    if (!solo) html += seccion('s-guard', 'Mis guardados', '<div id="guard-body"><div class="hint">Cargando…</div></div>', (d.guardadas || []).length ? String((d.guardadas || []).length) : '', '🔖');
     if (!solo) html += seccion('s-notas', 'Notas del coach', htmlNotasSemana(d) + '<div class="part-lbl" style="margin-top:10px">Ejercicios recomendados</div>' + htmlRecsAtleta(d.recomendaciones || []), '', '✎');
     if (!solo) html += '<button class="set-link" type="button" id="ir-ranking"><span class="set-ico">🏆</span>Leaderboard<span class="go">›</span></button>';
     if (!solo) html += seccion('s-marcas', 'Mis marcas', htmlMarcas(d), '', '◆');
@@ -665,9 +740,10 @@
     if (!solo) {
       document.getElementById('ir-ranking').onclick = function () { abrirLeaderboard(); };
       document.getElementById('s-desc').addEventListener('toggle', function () { if (this.open) cargarDescuentos(); });
+      document.getElementById('s-guard').addEventListener('toggle', function () { if (this.open) cargarGuardados(); });
     }
     enlazarMarcas();
-    var ab = S._abrir; S._abrir = null; if (ab && document.getElementById(ab)) { document.getElementById(ab).open = true; if (ab === 's-desc') cargarDescuentos(); }
+    var ab = S._abrir; S._abrir = null; if (ab && document.getElementById(ab)) { document.getElementById(ab).open = true; if (ab === 's-desc') cargarDescuentos(); if (ab === 's-guard') cargarGuardados(); }
   }
 
   // ---------- Mis eventos ----------
@@ -736,10 +812,10 @@
   function htmlAvisos(lista) {
     var activos = lista.filter(function (a) { return !a.pasado; }), viejos = lista.filter(function (a) { return a.pasado; });
     var item = function (a) {
-      return '<div class="av-item' + (a.visto ? ' visto' : '') + '"><div><b>' + esc(a.nombre) + '</b><div class="hint">' + esc(a.tipo) + ' · ' + esc(cuandoEvento(a)) + (a.visto ? ' · visto' : '') + '</div>' +
-        (a.descripcion ? '<p>' + esc(a.descripcion) + '</p>' : '') + '</div>' +
+      return '<div class="av-item' + (a.visto ? ' visto' : '') + (a.siempre ? ' fijo' : '') + '"><div><b>' + esc(a.nombre) + '</b><div class="hint">' + esc(a.tipo) + ' · ' + esc(cuandoEvento(a)) + (a.visto ? ' · visto' : '') + '</div>' +
+        (a.descripcion ? '<p>' + esc(a.descripcion) + '</p>' : '') + (a.siempre ? '<div class="fijo-txt">📌 ' + esc(txtSiempre(a)) + '</div>' : '') + '</div>' +
         '<div class="av-acc">' + (a.enlace ? '<a class="btn-ghost" href="' + esc(a.enlace) + '" target="_blank" rel="noopener">Abrir</a>' : '') +
-        (!a.visto && !a.pasado ? '<button class="btn-ghost" type="button" data-av-visto="' + esc(a.id) + '">Visto</button>' : '') + '</div></div>';
+        (!a.visto && !a.pasado && !a.siempre ? '<button class="btn-ghost" type="button" data-av-visto="' + esc(a.id) + '">Visto</button>' : '') + '</div></div>';
     };
     return (activos.length ? activos.map(item).join('') : '<div class="hint">No hay avisos activos.</div>') +
       (viejos.length ? '<details class="hist"><summary>Anteriores (' + viejos.length + ')</summary><div class="exp-body">' + viejos.map(item).join('') + '</div></details>' : '');
@@ -1138,6 +1214,110 @@
   }
   function rpeTd(v) { return v == null || v === '' ? '<span class="hint">—</span>' : '<b style="color:' + rpeColor(String(Math.round(v))) + '">' + esc(v) + '</b>'; }
 
+  // ---------- Guardados (v17) ----------
+  //  · Cada bloque tiene un marcador: guardado = tarea pendiente en Menú → Mis guardados (por semana y día). Se vacían al empezar ciclo.
+  //  · Los metcons guardados no caducan (el texto queda en la hoja METCONS); quitarlos pide confirmación.
+  var ICO_GUARDAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3.5h11a1 1 0 0 1 1 1v16l-6.5-4.2-6.5 4.2v-16a1 1 0 0 1 1-1z" fill="var(--g-fill,none)" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></svg>';
+  function estaGuardado(iso, n) { return ((S.data && S.data.guardadas) || []).indexOf(iso + '|' + n) >= 0; }
+  function botonGuardar(x, b) {
+    if (!x || !b.n || (S.data && S.data.soloEventos)) return '';
+    var on = estaGuardado(x.iso, b.n), m = esMetcon(b);
+    return '<button type="button" class="b-save' + (on ? ' on' : '') + '" data-guardar="' + esc(x.iso + '|' + b.n) + '" data-titulo="' + esc(b.titulo) + '"' + (m ? ' data-metcon="1"' : '') +
+      ' aria-pressed="' + on + '" aria-label="' + (on ? 'Quitar de guardados' : 'Guardar') + ' el bloque ' + esc(b.n) + '" title="' + (m ? 'Guardar metcon (no caduca)' : 'Guardar para hacerlo') + '">' + ICO_GUARDAR + '</button>';
+  }
+  function alternarGuardado(btn) {
+    var k = btn.dataset.guardar.split('|'), on = btn.getAttribute('aria-pressed') === 'true', metcon = !!btn.dataset.metcon;
+    if (on && metcon && btn.dataset.seguro !== '1') {   // un metcon guardado no se quita de un toque
+      btn.dataset.seguro = '1'; btn.classList.add('pide');
+      toast('Es un metcon guardado. Toca otra vez el marcador para quitarlo.');
+      setTimeout(function () { if (btn.isConnected) { btn.dataset.seguro = ''; btn.classList.remove('pide'); } }, 4000);
+      return;
+    }
+    btn.disabled = true;
+    api({ action: 'guardado', dia: k[0], bloque: Number(k[1]), titulo: btn.dataset.titulo, metcon: metcon, confirmar: on && metcon }).then(function (r) {
+      if (!r.ok) throw new Error(r.detalle || r.error);
+      S.data.guardadas = r.guardadas; S.guardados = null;
+      var ya = r.estado === 'guardado';
+      btn.disabled = false; btn.dataset.seguro = ''; btn.classList.remove('pide'); btn.classList.toggle('on', ya);
+      btn.setAttribute('aria-pressed', String(ya)); btn.setAttribute('aria-label', (ya ? 'Quitar de guardados' : 'Guardar') + ' el bloque ' + k[1]);
+      toast(ya ? (metcon ? 'Metcon guardado. Lo tienes siempre en Menú → Mis guardados.' : 'Guardado en Menú → Mis guardados') : 'Quitado de guardados');
+    }).catch(function (e) { btn.disabled = false; toast(mensajeError(e.message)); });
+  }
+
+  function lunesIso(iso) {
+    var d = new Date(iso + 'T12:00:00Z'), w = (d.getUTCDay() + 6) % 7;
+    d.setUTCDate(d.getUTCDate() - w); return d.toISOString().slice(0, 10);
+  }
+  function nombreDiaIso(iso) { return NOMBRE_DIA[['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'][new Date(iso + 'T12:00:00Z').getUTCDay()]]; }
+
+  function cargarGuardados() {
+    var w = document.getElementById('guard-body'); if (!w) return;
+    if (S.guardados) pintarGuardados();
+    api({ action: 'guardados' }).then(function (r) { if (r.ok) { S.guardados = r.guardados; pintarGuardados(); } })
+      .catch(function (e) { if (!S.guardados && document.getElementById('guard-body')) document.getElementById('guard-body').innerHTML = '<div class="hint">' + esc(mensajeError(e.message)) + '</div>'; });
+  }
+  function pintarGuardados() {
+    var w = document.getElementById('guard-body'), G = S.guardados; if (!w || !G) return;
+    var sems = {}, h = '';
+    G.bloques.forEach(function (g) { var l = g.lunes || lunesIso(g.fecha); ((sems[l] = sems[l] || {})[g.fecha] = sems[l][g.fecha] || []).push(g); });
+    var lunes = Object.keys(sems).sort();
+    h += '<div class="part-lbl">Bloques pendientes del ciclo</div>';
+    if (!lunes.length) h += '<div class="hint">Toca el marcador 🔖 de un bloque para guardarlo aquí como tarea pendiente. Se vacía al empezar un ciclo nuevo.</div>';
+    var hoyL = lunesIso(S.data.hoy || new Date().toISOString().slice(0, 10));
+    lunes.forEach(function (l) {
+      var todos = [].concat.apply([], Object.keys(sems[l]).map(function (f) { return sems[l][f]; })), hechos = todos.filter(function (g) { return g.hecho; }).length;
+      h += '<details class="gd-sem"' + (l === hoyL || lunes.length === 1 ? ' open' : '') + '><summary>Semana del ' + esc(fechaCorta(l)) + '<span class="gd-cnt">' + hechos + '/' + todos.length + '</span></summary><div class="exp-body">' +
+        Object.keys(sems[l]).sort().map(function (f) {
+          return '<div class="gd-dia"><div class="part-lbl">' + esc(nombreDiaIso(f)) + ' ' + esc(diaMes(f)) + '</div>' + sems[l][f].map(function (g) {
+            return '<div class="gd-item' + (g.hecho ? ' hecho' : '') + '"><label class="chk"><input type="checkbox" data-g-hecho="' + esc(g.id) + '"' + (g.hecho ? ' checked' : '') + '>' +
+              '<span><b>' + esc(g.bloque) + '</b> · ' + esc(g.titulo || 'Bloque') + '</span></label>' +
+              '<span class="gd-acc"><button type="button" class="btn-ghost sm" data-g-ir="' + esc(g.fecha + '|' + g.bloque) + '">Ver</button>' +
+              '<button type="button" class="btn-ghost sm" data-g-x="' + esc(g.id) + '">Quitar</button></span></div>';
+          }).join('') + '</div>';
+        }).join('') + '</div></details>';
+    });
+    h += '<div class="part-lbl" style="margin-top:12px">Metcons guardados</div>';
+    h += G.metcons.length ? G.metcons.map(function (m) {
+      return '<details class="gd-met"><summary><b>' + esc(m.titulo || 'Metcon') + '</b><span class="hint"> · ' + esc(fechaCorta(m.fecha)) + '</span></summary><div class="exp-body">' +
+        (m.texto ? '<div class="board">' + pizarra(m.texto, {}) + '</div>' : '<div class="hint">Texto no disponible.</div>') +
+        '<div class="gd-acc"><button type="button" class="btn-ghost sm" data-g-ir="' + esc(m.fecha + '|' + m.bloque) + '">Ver el día</button>' +
+        '<button type="button" class="btn-ghost sm" data-g-x="' + esc(m.id) + '" data-g-metcon="1">Borrar</button></div></div></details>';
+    }).join('') : '<div class="hint">Los metcons que guardes se quedan aquí siempre, aunque cambie el ciclo.</div>';
+    w.innerHTML = h;
+  }
+  function irAlBloque(fecha, n) {
+    var l = lunesIso(fecha), sem = ((S.data && S.data.semanas) || []).filter(function (s) { return s.iso === l; })[0];
+    var ir = function () {
+      var i = S.data.dias.findIndex(function (x) { return x.iso === fecha; });
+      if (i < 0) { toast('Ese día ya no está en la programación.'); return; }
+      S.dia = i; S.vista = null; render();
+      setTimeout(function () { var el = document.getElementById('b-' + n); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 40);
+    };
+    if (!sem) { toast('Esa semana ya no está disponible.'); return; }
+    if (sem.clave === S.data.semana) ir(); else { toast('Cargando la semana…'); cargar(sem.clave).then(ir); }
+  }
+  function clickGuardados(t) {
+    var b;
+    if ((b = t.closest('[data-guardar]'))) { alternarGuardado(b); return true; }
+    if ((b = t.closest('[data-g-hecho]'))) {
+      api({ action: 'guardado_hecho', id: b.dataset.gHecho, hecho: b.checked }).then(function (r) { if (r.ok) { S.guardados = r.guardados; pintarGuardados(); } })
+        .catch(function (e) { b.checked = !b.checked; toast(mensajeError(e.message)); });
+      return true;
+    }
+    if ((b = t.closest('[data-g-ir]'))) { var k = b.dataset.gIr.split('|'); irAlBloque(k[0], k[1]); return true; }
+    if ((b = t.closest('[data-g-x]'))) {
+      var met = !!b.dataset.gMetcon;
+      if (met && !confirmar(b, '¿Borrar? Toca otra vez')) return true;
+      b.disabled = true;
+      api({ action: 'guardado_borrar', id: b.dataset.gX, confirmar: met }).then(function (r) {
+        if (!r.ok) throw new Error(r.detalle || r.error);
+        S.guardados = r.guardados; S.data.guardadas = r.guardadas; pintarGuardados(); toast(met ? 'Metcon borrado de tus guardados' : 'Quitado');
+      }).catch(falloApi(b));
+      return true;
+    }
+    return false;
+  }
+
   // =====================================================================
   //  PUBLICAR (coach) · un solo formulario para avisos y notas, con el mismo «Para»:
   //  Todos · Participantes de un evento · Atletas concretos (· un grupo, como opción avanzada)
@@ -1213,7 +1393,8 @@
       '<div data-solo="aviso"><label for="pa-t">Título</label><input id="pa-t" maxlength="80" placeholder="Ej. Box cerrado el sábado por la tarde">' +
       '<label for="pa-m">Mensaje</label><textarea id="pa-m" rows="3" maxlength="1000" placeholder="Lo que verán al abrir la app"></textarea>' +
       '<div class="two"><div><label for="pa-d">Desde</label><input id="pa-d" type="date" value="' + esc(d.hoy || '') + '"></div><div><label for="pa-h">Hasta (opcional)</label><input id="pa-h" type="date"></div></div>' +
-      '<div class="two"><div><label for="pa-hr">Hora (opcional)</label><input id="pa-hr" type="time"></div><div><label for="pa-u">Enlace (opcional)</label><input id="pa-u" type="url" placeholder="https://…"></div></div></div>' +
+      '<div class="two"><div><label for="pa-hr">Hora (opcional)</label><input id="pa-hr" type="time"></div><div><label for="pa-u">Enlace (opcional)</label><input id="pa-u" type="url" placeholder="https://…"></div></div>' +
+      '<label class="chk"><input type="checkbox" id="pa-sv"> 📌 Siempre visible (el atleta no lo puede ocultar)</label></div>' +
       // --- nota ---
       '<div data-solo="nota"><div id="pn-plw"></div>' +
       '<label>Dónde se ve</label><div class="seg" role="group" id="pn-al">' + ['Bloque', 'Día', 'Semana', 'Fase'].map(function (a) {
@@ -1261,7 +1442,7 @@
       var fallo = function (e) { b.disabled = false; b.textContent = txt; toast(mensajeError(e.message)); };
       if (tab === 'aviso') {
         if (!val('pa-t')) { fallo(new Error('Pon un título.')); return; }
-        api({ action: 'aviso_guardar', aviso: { titulo: val('pa-t'), mensaje: val('pa-m'), desde: val('pa-d'), hasta: val('pa-h'), hora: val('pa-hr'), enlace: val('pa-u'),
+        api({ action: 'aviso_guardar', aviso: { titulo: val('pa-t'), mensaje: val('pa-m'), desde: val('pa-d'), hasta: val('pa-h'), hora: val('pa-hr'), enlace: val('pa-u'), siempre: document.getElementById('pa-sv').checked,
           para: p.modo === 'evento' ? 'Participantes' : p.modo === 'atletas' ? 'Atletas' : p.modo === 'grupo' ? p.grupo : 'Todos', evento: p.evento, emails: p.emails } })
           .then(function (r) { if (!r.ok) throw new Error(r.detalle || r.error); toast('Aviso publicado'); S.avisosCoach = r.avisos; cerrarHoja(); if (opts.volver) opts.volver(); else cargar(S.data.semana); })
           .catch(fallo);
@@ -1356,7 +1537,7 @@
       el.innerHTML = l.length ? l.map(function (a) {
         var L = a.lectura || { total: 0, vistos: 0, faltan: [] }, pc = L.total ? Math.round(L.vistos / L.total * 100) : 0;
         return '<div class="ac"><div class="mn-top"><b>' + esc(a.titulo) + '</b><span class="hint">' + fechaCorta(a.desde) + (a.hasta ? ' – ' + fechaCorta(a.hasta) : '') + '</span></div>' +
-          '<div class="mn-para">Para: <b>' + esc(a.paraTexto) + '</b>' + (a.por ? ' · ' + esc(a.por) : '') + '</div>' + (a.mensaje ? '<p>' + esc(a.mensaje) + '</p>' : '') +
+          '<div class="mn-para">Para: <b>' + esc(a.paraTexto) + '</b>' + (a.por ? ' · ' + esc(a.por) : '') + (a.siempre ? ' · 📌 siempre visible' : '') + '</div>' + (a.mensaje ? '<p>' + esc(a.mensaje) + '</p>' : '') +
           '<div class="lect"><div class="lect-bar"><i style="width:' + pc + '%"></i></div><span>Visto por <b>' + L.vistos + ' de ' + L.total + '</b></span></div>' +
           (L.faltan.length ? '<details class="hist"><summary>Faltan (' + L.faltan.length + ')</summary><div class="exp-body hint">' + L.faltan.map(esc).join(', ') + '</div></details>' : '') +
           (a.esEvento ? '' : '<div class="mn-acc"><button class="btn-ghost sm" type="button" data-ac-off="' + esc(a.id) + '">Retirar</button></div>') + '</div>';
@@ -1822,7 +2003,8 @@
       L.metcons.forEach(function (m) { (dias[m.dia] = dias[m.dia] || []).push(m); });
       Object.keys(dias).sort().forEach(function (iso) {
         var nom = ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'][new Date(iso + 'T12:00:00Z').getUTCDay()];
-        html += '<section class="rk-day" id="rk-' + iso + '"><h2>' + NOMBRE_DIA[nom] + ' ' + diaMes(iso) + '</h2>';
+        html += '<section class="rk-day" id="rk-' + iso + '"><h2><button type="button" class="rk-dia" data-rk-dia="' + iso + '" aria-label="Ver el metcon del ' + NOMBRE_DIA[nom] + ' ' + diaMes(iso) + '">' +
+          NOMBRE_DIA[nom] + ' ' + diaMes(iso) + '<span class="rk-ver">Ver metcon</span></button></h2>';
         dias[iso].forEach(function (m) {
           var filas = m.filas.filter(function (f) { return rk.filtro === 'Todos' || (rk.filtro === 'Chicos' ? f.sexo === 'Chico' : f.sexo === 'Chica'); });
           var pos = 0, nivelAnt = null;
@@ -1846,7 +2028,27 @@
     if (sel) sel.onchange = function () { abrirLeaderboard(sel.value); };
     var f = document.getElementById('rk-f');
     if (f) f.onclick = function (ev) { var b = ev.target.closest('[data-f]'); if (!b) return; rk.filtro = b.dataset.f; guardar('pa-rk-filtro', rk.filtro); render(); };
+    $app.querySelectorAll('[data-rk-dia]').forEach(function (b) { b.onclick = function () { abrirMetconDia(b.dataset.rkDia); }; });
     if (rk.irA) { var el = document.getElementById('rk-' + rk.irA); rk.irA = null; if (el) setTimeout(function () { el.scrollIntoView({ block: 'start' }); }, 30); }
+  }
+
+  /** Ventana con el texto de los metcons de un día del leaderboard (de la hoja METCONS; si no, de la semana cargada). */
+  function textoBloqueLocal(iso, num) {
+    var x = (S.data.dias || []).filter(function (y) { return y.iso === iso; })[0];
+    var b = x && (x.bloques || []).filter(function (y) { return String(y.n) === String(num); })[0];
+    return b ? b.partes.map(function (p) { return (p.etiqueta ? p.etiqueta + '\n' : '') + p.texto; }).join('\n\n') : '';
+  }
+  function abrirMetconDia(iso) {
+    var L = S.rk && S.rk.datos; if (!L) return;
+    var vistos = {}, ms = L.metcons.filter(function (m) { if (m.dia !== iso) return false; var k = m.bloque + '|' + (m.version || ''); if (vistos[k]) return false; vistos[k] = 1; return true; });
+    var nom = ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'][new Date(iso + 'T12:00:00Z').getUTCDay()];
+    abrirHoja('<div class="row"><h2>' + NOMBRE_DIA[nom] + ' ' + diaMes(iso) + '</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      ms.map(function (m) {
+        var t = m.texto || textoBloqueLocal(iso, m.bloque);
+        return '<div class="rk-metcon"><div class="rk-head"><span class="b-num">' + m.bloque + '</span><b>' + esc(m.titulo || 'Metcon') + '</b>' +
+          (m.version ? '<span class="v-tag">' + esc(nombreVersion(m.version)) + '</span>' : '') + '</div>' +
+          (t ? '<div class="board">' + pizarra(t, {}) + '</div>' : '<div class="hint">El texto de este metcon no está guardado.</div>') + '</div>';
+      }).join(''));
   }
 
   // ---------- compartir la app ----------
@@ -2509,6 +2711,11 @@
     s = Math.max(0, Math.round(s)); var hh = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60, p = function (n) { return (n < 10 ? '0' : '') + n; };
     return hh ? hh + ':' + p(m) + ':' + p(r) : p(Math.floor(s / 60)) + ':' + p(r);
   }
+  /** Reloj grande: en vertical, minutos arriba y segundos abajo (dígitos el doble de grandes); en horizontal, MM:SS en una línea. */
+  function tmReloj(seg, color) {
+    var txt = tmLedTxt(seg), k = txt.lastIndexOf(':');
+    return '<div class="rl-t-h">' + tmLed(txt, color) + '</div><div class="rl-t-v">' + tmLed(txt.slice(0, k), color) + tmLed(txt.slice(k + 1), color) + '</div>';
+  }
   function tmRonda(p) {
     var m = /(?:Ronda|Serie) (\d+)\/(\d+)/.exec((p.sub || '') + ' ' + (p.tit || ''));
     return m ? { n: +m[1], de: +m[2] } : null;
@@ -2517,7 +2724,7 @@
     var rd = p ? tmRonda(p) : null;
     return '<div class="rl-led ' + color + '">' +
       (p ? '<div class="rl-rd">' + tmLed(rd ? (rd.n < 10 ? '0' : '') + rd.n : '  ', 'verde') + '<span>' + (rd ? 'de ' + rd.de : '&nbsp;') + '</span></div>' : '') +
-      '<div class="rl-t" role="timer" aria-live="off" aria-label="' + tmFmt(seg) + '">' + tmLed(tmLedTxt(seg), color) + '</div></div>';
+      '<div class="rl-t" role="timer" aria-live="off" aria-label="' + tmFmt(seg) + '">' + tmReloj(seg, color) + '</div></div>';
   }
   function tmPintar(soloTiempo) {
     var R = TM.run, el = document.getElementById('reloj'); if (!R || !el) return;
@@ -2526,7 +2733,7 @@
     var color = p.k === 'rest' && !p.prep ? 'verde' : 'rojo';
     var prog = p.dur ? Math.min(1, t / p.dur) : 0;
     if (soloTiempo && el.querySelector('.rl-t')) {
-      if (R.ultPint !== seg) { R.ultPint = seg; el.querySelector('.rl-t').innerHTML = tmLed(tmLedTxt(seg), color); }
+      if (R.ultPint !== seg) { R.ultPint = seg; el.querySelector('.rl-t').innerHTML = tmReloj(seg, color); }
       var b = el.querySelector('.rl-bar i'); if (b) b.style.width = (prog * 100) + '%';
       return;
     }
@@ -2748,6 +2955,7 @@
   // ---------- eventos de la interfaz ----------
   document.addEventListener('click', function (e) {
     var t = e.target, b;
+    if (clickGuardados(t)) return;
     if ((b = t.closest('.day-btn'))) { S.dia = +b.dataset.dia; render(); window.scrollTo({ top: 0 }); return; }
     if ((b = t.closest('.vid'))) { e.preventDefault(); abrirVideo(+b.dataset.v); return; }
     if ((b = t.closest('.rpe-chip'))) {
@@ -2775,7 +2983,7 @@
       var a = ((S.data.avisos || {})[iso] || []).filter(function (x) { return x.id === b.dataset.aviso; })[0];
       if (a) mostrarAviso(a, iso); return;
     }
-    if ((b = t.closest('[data-av-cerrar]'))) { cerrarHoja(); return; }
+    if ((b = t.closest('[data-av-cerrar]'))) { cerrarHoja(); if (!S.vista && S.data) setTimeout(function () { abrirAvisosPendientes(S.data); }, 150); return; }
     if ((b = t.closest('[data-av-visto]'))) { marcarVisto(b.dataset.avVisto); if (S.vista === 'ajustes') { S._abrir = 's-avisos'; render(); } return; }
     if ((b = t.closest('[data-ir-evento]'))) { abrirAjustes('s-eventos'); setTimeout(function () { var el = document.getElementById('ev-' + b.dataset.irEvento); if (el) { el.open = true; el.scrollIntoView({ block: 'center' }); } }, 30); return; }
     if ((b = t.closest('[data-unirme]'))) {
@@ -2868,7 +3076,7 @@
   // Tras 5 minutos sin usarla, el primer toque (o volver a la pestaña) busca versión nueva de la app
   // y recarga los datos. Si hay versión nueva, la página se recarga sola una vez (con el service worker
   // «primero red», una recarga basta para ver la última versión).
-  var WEB_VERSION = 'v4 · web 16';
+  var WEB_VERSION = 'v4 · web 17';
   var ultimaActividad = Date.now(), habiaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller), recargando = false;
   function recargarApp() {
     if (recargando) return;
