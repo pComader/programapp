@@ -2081,8 +2081,15 @@
 
   // ---------- calculadora lb ⇄ kg (ventana flotante, no tapa ni cambia la pantalla) ----------
   var LB = 0.45359237;
-  var ICO_CALC = '<span class="calc-ico" aria-hidden="true">lb<i>⇄</i>kg</span>';
-  function botonCalc() { return '<button class="icon-btn calc-btn" type="button" data-calc aria-label="Calculadora libras a kilos">' + ICO_CALC + '</button>'; }
+  var ICO_CALC = '<span class="calc-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 13.5V9.5M9.5 3.5h5M18 7l1.5-1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>kg</span>';
+  function botonCalc() { return '<button class="icon-btn calc-btn" type="button" data-calc aria-label="Herramientas: calculadora lb/kg y timer libre">' + ICO_CALC + '</button>'; }
+  /** Botón de herramientas: elegir calculadora o timer libre. */
+  function abrirHerramientas() {
+    if (document.getElementById('calc')) { toggleCalc(); return; }
+    abrirHoja('<div class="row"><h2>Herramientas</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div><div class="herr">' +
+      '<button type="button" class="herr-op" data-herr="calc"><span class="herr-ico">lb<i>⇄</i>kg</span><b>Calculadora</b><span>Libras ⇄ kilos</span></button>' +
+      '<button type="button" class="herr-op" data-herr="timer"><span class="herr-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 13.5V9.5M9.5 3.5h5M18 7l1.5-1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><b>Timer libre</b><span>For time, AMRAP, EMOM, Tabata…</span></button></div>');
+  }
   function redondear(x) { return Math.round(x * 10) / 10; }
   function fmtNum(x) { return isFinite(x) ? String(redondear(x)).replace('.', ',') : ''; }
   function leerNum(v) { var n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? NaN : n; }
@@ -2191,7 +2198,8 @@
 
   document.addEventListener('click', function (e) {
     var t = e.target, b;
-    if (t.closest('[data-calc]')) { toggleCalc(); return; }
+    if (t.closest('[data-calc]')) { abrirHerramientas(); return; }
+    if ((b = t.closest('[data-herr]'))) { if (b.dataset.herr === 'calc') { cerrarHoja(); toggleCalc(true); } else abrirTimerLibre(); return; }
     if (t.closest('[data-calc-cerrar]')) { toggleCalc(); return; }
     if ((b = t.closest('[data-lb]'))) { var lb = document.getElementById('calc-lb'); lb.value = b.dataset.lb; lb.oninput(); return; }
     if (t.closest('[data-instalar]')) { instalar(); return; }
@@ -2461,7 +2469,7 @@
   var TM = { reg: [], run: null };
   var PIP = {};   // burbuja flotante (imagen en imagen)
   function tmHash(s) { var h = 0; s = String(s); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
-  function tmClave(r) { return 'pa-tm-' + r.iso + '|' + r.n + '|' + tmHash(r.texto); }
+  function tmClave(r) { return r.libre ? 'pa-tm-libre-' + r.tipo : 'pa-tm-' + r.iso + '|' + r.n + '|' + tmHash(r.texto); }
   function tmCorto(det) {
     var g = det.grupos, s = g.length === 1 ? tmResumen(g[0]) : g.length + ' tramos · ' + tmFmt(det.total);
     return (det.repetir > 1 ? det.repetir + '× ' : '') + s;
@@ -2502,7 +2510,7 @@
           (p.t === 'pausa' ? '<span class="tm-l">pausa</span>' : '<span class="tm-l">' + esc(p.txt || 'trabajo') + '</span>') + tmCampoDur(i + '-p' + j, p.s)) + '</div>';
       }).join('') + '</div>';
     }
-    if (g.k === 'crono') h += '<span class="hint">Cuenta hacia arriba. Al parar, te lleva a apuntar el resultado.</span>';
+    if (g.k === 'crono') h += '<span class="tm-l">time cap</span>' + tmCampoDur(i + '-cap', g.cap || 0) + '<span class="hint">Cuenta hacia arriba. 0:00 = sin time cap.</span>';
     if (g.estaciones) h += '<div class="tm-est">' + g.estaciones.map(function (e, j) { return '<span>' + (j + 1) + ': ' + esc(e) + '</span>'; }).join('') + '</div>';
     return h + '</div></div>';
   }
@@ -2514,9 +2522,10 @@
       if (g.k === 'intervalo') { g.rondas = num(i + '-rondas'); g.cada = dur(i + '-cada'); if (g.cap) g.cap = dur(i + '-cap'); }
       if (g.k === 'cuenta' || g.k === 'descanso') g.dur = dur(i + '-dur');
       if (g.k === 'onoff') { g.rondas = num(i + '-rondas'); g.on = dur(i + '-on'); g.off = dur(i + '-off'); }
+      if (g.k === 'crono') g.cap = dur(i + '-cap');
       if (g.k === 'series') { g.series = num(i + '-series') || 1; g.descanso = dur(i + '-descanso'); g.pasos.forEach(function (p, j) { if (p.t !== 'tap') p.s = dur(i + '-p' + j); }); }
     });
-    var rp = parseInt(q('#tm-rep'), 10); if (r.edit.repetir > 1 || rp > 1) r.edit.repetir = rp > 0 ? rp : 1;
+    var rp = parseInt(q('#tm-rep'), 10); if (r.libre || r.edit.repetir > 1 || rp > 1) r.edit.repetir = rp > 0 ? rp : 1;
   }
   function tmAbrirEditor(i) {
     var r = TM.reg[i]; if (!r) return;
@@ -2525,16 +2534,19 @@
   }
   function tmPintarEditor(r, i) {
     var e = r.edit, falta = e.grupos.some(function (g) { return (g.k === 'intervalo' || g.k === 'onoff') && !g.rondas; });
-    abrirHoja('<div class="row"><h2>Tu timer</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+    abrirHoja('<div class="row"><h2>' + (r.libre ? esc(r.titulo) : 'Tu timer') + '</h2>' + (r.libre ? '<button class="btn-ghost" data-tm-tipos type="button">‹ Tipos</button>' : '<button class="btn-ghost" data-close type="button">Cerrar</button>') + '</div>' +
+      (r.libre ? '<div class="hint">Ajusta los tiempos a tu ejercicio. Se recuerda para la próxima vez.</div>' :
       '<div class="hint">' + esc(r.n + ' · ' + r.titulo) + (r.etq ? ' · ' + esc(r.etq) : '') + (r.version ? ' · versión ' + esc(nombreVersion(r.version)) : '') + '</div>' +
-      '<details class="tm-orig"><summary>Lo que escribió Gabi</summary><div class="board small">' + esc(r.texto) + '</div></details>' +
-      (e.repetir > 1 ? '<label class="tm-n">Repetir todo<input id="tm-rep" inputmode="numeric" value="' + e.repetir + '"> veces</label>' : '') +
+      '<details class="tm-orig"><summary>Lo que escribió Gabi</summary><div class="board small">' + esc(r.texto) + '</div></details>') +
+      (r.libre || e.repetir > 1 ? '<label class="tm-n">Repetir todo<input id="tm-rep" inputmode="numeric" value="' + (e.repetir || 1) + '"> veces</label>' : '') +
       '<div id="tm-rows">' + e.grupos.map(tmFilaHtml).join('') + '</div>' +
       '<div class="tm-add"><button class="btn-ghost sm" type="button" data-tm-add="intervalo">＋ Intervalo</button><button class="btn-ghost sm" type="button" data-tm-add="cuenta">＋ Cuenta atrás</button>' +
-      '<button class="btn-ghost sm" type="button" data-tm-add="descanso">＋ Descanso</button></div>' +
+      '<button class="btn-ghost sm" type="button" data-tm-add="descanso">＋ Descanso</button>' +
+      (r.libre ? '<button class="btn-ghost sm" type="button" data-tm-add="onoff">＋ ON/OFF</button><button class="btn-ghost sm" type="button" data-tm-add="crono">＋ Cronómetro</button>' : '') + '</div>' +
       '<div class="tm-total" id="tm-total">' + tmTextoTotal(e) + '</div>' +
-      (falta ? '<div class="err">Pon cuántas rondas son (Gabi no lo indicó).</div>' : (r.det.confianza !== 'alta' ? '<div class="err">Revisa los tiempos: ' + esc(r.det.notas.join(' · ')) + '</div>' : '')) +
-      '<div class="two-btn"><button class="btn" type="button" data-tm-reset="' + i + '">Lo de Gabi</button><button class="btn btn-primary" type="button" data-tm-go="' + i + '">Confirmar y empezar</button></div>');
+      (!e.grupos.length ? '<div class="hint">Añade tramos con los botones de arriba.</div>' : '') +
+      (falta ? '<div class="err">Pon cuántas rondas son' + (r.libre ? '.' : ' (Gabi no lo indicó).') + '</div>' : (r.det.confianza !== 'alta' ? '<div class="err">Revisa los tiempos: ' + esc(r.det.notas.join(' · ')) + '</div>' : '')) +
+      '<div class="two-btn"><button class="btn" type="button" data-tm-reset="' + i + '">' + (r.libre ? 'Valores por defecto' : 'Lo de Gabi') + '</button><button class="btn btn-primary" type="button" data-tm-go="' + i + '">Confirmar y empezar</button></div>');
     $scrim.querySelector('.sheet').oninput = function () { tmLeerEditor(r); document.getElementById('tm-total').textContent = tmTextoTotal(r.edit); };
   }
   function tmTextoTotal(e) {
@@ -2562,17 +2574,18 @@
         });
         if (s < g.series && g.descanso) out.push({ k: 'rest', dur: g.descanso, tit: pre + 'Descanso', sub: 'Siguiente: serie ' + (s + 1) + '/' + g.series });
       }
-      if (g.k === 'crono') out.push({ k: 'up', tit: g.etiqueta || 'FOR TIME', sub: 'Pulsa «Terminé» al acabar' });
+      if (g.k === 'crono') out.push({ k: 'up', tit: pre + (g.etiqueta || 'FOR TIME'), sub: g.cap ? 'Time cap ' + tmFmt(g.cap) : 'Pulsa «Terminé» al acabar', cap: g.cap || 0 });
     });
     return out.filter(function (p) { return p.k === 'tap' || p.k === 'up' || p.dur > 0; });
   }
 
   // ---------- reloj ----------
   function tmBeep(f, ms) {
-    var R = TM.run; if (!R || !R.ac) return;
+    var R = TM.run; if (!R || !R.ac || leer('pa-tm-mudo')) return;
+    tmAudio();
     try {
       var o = R.ac.createOscillator(), g = R.ac.createGain(), t = R.ac.currentTime;
-      o.frequency.value = f; o.type = 'square'; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
+      o.frequency.value = f; o.type = 'square'; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.01); g.gain.setValueAtTime(0.5, t + Math.max(0.02, ms / 1000 - 0.06));
       g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000); o.connect(g); g.connect(R.ac.destination); o.start(t); o.stop(t + ms / 1000 + 0.02);
     } catch (e) {}
   }
@@ -2601,9 +2614,10 @@
     var pasos = tmPasos(r.edit);
     if (!pasos.length) { toast('No hay ningún tramo con tiempo.'); return; }
     cerrarHoja();
-    var ac = null; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    tmSesionAudio();
+    var ac = null; try { ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.resume) ac.resume(); } catch (e) {}
     pasos.unshift({ k: 'rest', dur: 10, tit: 'Prepárate', sub: r.titulo, prep: true });
-    var rr = { texto: r.texto, etq: r.etq, iso: r.iso, n: r.n, titulo: r.titulo, version: r.version, metcon: r.metcon };
+    var rr = { texto: r.texto, etq: r.etq, iso: r.iso, n: r.libre ? '' : r.n, titulo: r.titulo, version: r.version, metcon: r.metcon };
     TM.run = { r: rr, pasos: pasos, i: 0, ini: Date.now(), pausa: 0, enPausa: null, ac: ac, ultSeg: null, total0: Date.now(), fin: false, capAvisado: false };
     tmMontarReloj(); tmGuardarRun(); tmPipIniciar();
   }
@@ -2627,6 +2641,7 @@
     if (TM.run) return;
     var s = leer(TM_KEY);
     if (!s || !s.pasos || !s.pasos.length || Date.now() - s.total0 > 4 * 3600 * 1000) { tmBorrarRun(); return; }
+    tmSesionAudio();
     var ac = null; try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
     TM.run = { r: s.r, pasos: s.pasos, i: s.i, ini: s.ini, pausa: s.pausa || 0, enPausa: s.enPausa || null, ac: ac, ultSeg: null, total0: s.total0, fin: false, capAvisado: true };
     tmMontarReloj(); tmPipIniciar();
@@ -2648,6 +2663,11 @@
       if (saltos > 1000) break;
     }
     if (saltos) { tmAvisoTramo(); tmPintar(); tmGuardarRun(); tmPipDibujar(); return; }
+    if (p.k === 'up' && p.cap) {
+      var sc = Math.ceil(p.cap - t);
+      if (sc !== R.ultSeg) { R.ultSeg = sc; if (sc <= 3 && sc >= 1) tmBeep(880, 120); }
+      if (t >= p.cap) { R.capFin = true; R.i = R.pasos.length; return tmFinal(p.cap); }
+    }
     if (p.k === 'work' || p.k === 'rest') {
       var seg = Math.ceil(p.dur - t);
       if (seg !== R.ultSeg) {
@@ -2658,7 +2678,15 @@
     }
     tmPintar(true); tmPipDibujar();
   }
-  function tmAvisoTramo() { var p = TM.run.pasos[TM.run.i]; tmBeep(p.k === 'rest' ? 520 : 1040, 450); tmVibrar(p.k === 'rest' ? 200 : [250, 100, 250]); }
+  /** Pitidos: 3-2-1 cortos antes de cada cambio · cambio de ronda = pitido medio · inicio = pitido largo. */
+  function tmAvisoTramo() {
+    var R = TM.run, p = R.pasos[R.i], ant = R.pasos[R.i - 1];
+    if (ant && ant.prep) { tmBeep(1040, 1100); tmVibrar(700); return; }   // ¡empieza!
+    tmBeep(p.k === 'rest' ? 620 : 1040, 500); tmVibrar(p.k === 'rest' ? 200 : [250, 100, 250]);
+  }
+  /** iPhone: sin esto, el interruptor de silencio apaga los pitidos. */
+  function tmSesionAudio() { try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {} }
+  function tmIcoSon(on) { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/>' + (on ? '<path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' : '<path d="M16 9.5l5 5M21 9.5l-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>') + '</svg>'; }
   /** Saltar o «Hecho»: el siguiente tramo empieza ahora. */
   function tmSiguiente() {
     var R = TM.run;
@@ -2678,14 +2706,14 @@
   function tmFinal(cronoSeg) {
     var R = TM.run; R.fin = true; clearInterval(R.int); tmWake(false); tmBorrarRun();
     tmPipDibujar('FIN'); setTimeout(tmPipCerrar, 5000);
-    tmBeep(1040, 700); tmVibrar([300, 120, 300, 120, 300]);
+    tmBeep(1040, 1600); tmVibrar([600, 150, 600]);   // final: pitido largo
     var el = document.getElementById('reloj'); if (!el) return;
     var total = (Date.now() - R.total0) / 1000 - 10;
     el.className = 'reloj fin';
     var segF = cronoSeg != null ? cronoSeg : Math.max(0, total);
-    el.innerHTML = '<div class="rl-top"><span>' + esc(R.r.n + ' · ' + R.r.titulo) + '</span></div>' +
+    el.innerHTML = '<div class="rl-top"><span>' + esc((R.r.n ? R.r.n + ' · ' : '') + R.r.titulo) + '</span></div>' +
       '<div class="rl-caja">' + tmPanel(segF, null, 'rojo') + '</div>' +
-      '<div class="rl-info"><div class="rl-tit rojo">' + (cronoSeg != null ? 'Tu tiempo' : '¡Terminado!') + '</div></div><div class="rl-btns">' +
+      '<div class="rl-info"><div class="rl-tit rojo">' + (R.capFin ? 'Time cap' : cronoSeg != null ? 'Tu tiempo' : '¡Terminado!') + '</div></div><div class="rl-btns">' +
       (R.r.metcon ? '<button class="btn btn-primary" type="button" data-rl="resultado"' + (cronoSeg != null ? ' data-t="' + Math.round(cronoSeg) + '"' : '') + '>Apuntar resultado</button>' : '') +
       '<button class="btn" type="button" data-rl="salir">Cerrar</button></div>';
   }
@@ -2738,7 +2766,9 @@
     }
     R.ultPint = seg;
     el.className = 'reloj ' + (p.prep ? 'prep' : p.k) + (R.enPausa ? ' pausado' : '');
-    el.innerHTML = '<div class="rl-top"><span class="rl-nom">' + esc(R.r.n + ' · ' + R.r.titulo) + '</span><span class="rl-der"><span>Tramo ' + R.i + '/' + (R.pasos.length - 1) + '</span>' +
+    var son = !leer('pa-tm-mudo');
+    el.innerHTML = '<div class="rl-top"><span class="rl-nom">' + esc((R.r.n ? R.r.n + ' · ' : '') + R.r.titulo) + '</span><span class="rl-der"><span>Tramo ' + R.i + '/' + (R.pasos.length - 1) + '</span>' +
+      '<button class="rl-son" type="button" data-tm-son aria-pressed="' + son + '" aria-label="' + (son ? 'Silenciar pitidos' : 'Activar pitidos') + '">' + tmIcoSon(son) + '</button>' +
       (tmPipSoportado() ? '<button class="rl-pip' + (PIP.abierta ? ' on' : '') + '" type="button" data-rl="burbuja" aria-label="' + (PIP.abierta ? 'Cerrar la burbuja flotante' : 'Abrir el timer en una burbuja flotante') + '">' +
         '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="12" y="11.5" width="7.5" height="5.5" rx="1.2" fill="currentColor"/></svg>' +
         '<span>' + (PIP.abierta ? 'Cerrar' : 'Burbuja') + '</span></button>' : '') + '</span></div>' +
@@ -2768,11 +2798,15 @@
     if ((b = t.closest('[data-tm-add]'))) {
       var r2 = TM.reg[+$scrim.querySelector('[data-tm-go]').dataset.tmGo]; tmLeerEditor(r2);
       var k = b.dataset.tmAdd;
-      r2.edit.grupos.push(k === 'intervalo' ? { k: 'intervalo', cada: 60, rondas: 5, etiqueta: 'EVERY' } : k === 'cuenta' ? { k: 'cuenta', dur: 600, etiqueta: 'CUENTA ATRÁS' } : { k: 'descanso', dur: 60 });
+      r2.edit.grupos.push(k === 'intervalo' ? { k: 'intervalo', cada: 60, rondas: 5, etiqueta: 'EVERY' } : k === 'cuenta' ? { k: 'cuenta', dur: 600, etiqueta: 'CUENTA ATRÁS' } :
+        k === 'onoff' ? { k: 'onoff', rondas: 8, on: 20, off: 10, etiqueta: 'ON/OFF' } : k === 'crono' ? { k: 'crono', etiqueta: 'FOR TIME', cap: 0 } : { k: 'descanso', dur: 60 });
       tmPintarEditor(r2, TM.reg.indexOf(r2)); return;
     }
     if ((b = t.closest('[data-tm-reset]'))) { var r3 = TM.reg[+b.dataset.tmReset]; r3.edit = tmCopia(r3.det); try { localStorage.removeItem(tmClave(r3)); } catch (x) {} r3.propio = null; tmPintarEditor(r3, +b.dataset.tmReset); return; }
     if ((b = t.closest('[data-tm-go]'))) { tmEmpezar(+b.dataset.tmGo); return; }
+    if ((b = t.closest('[data-tm-tipos]'))) { abrirTimerLibre(); return; }
+    if ((b = t.closest('[data-tm-libre]'))) { tmLibre(b.dataset.tmLibre); return; }
+    if ((b = t.closest('[data-tm-son]'))) { var mu = !leer('pa-tm-mudo'); guardar('pa-tm-mudo', mu); b.setAttribute('aria-pressed', String(!mu)); b.innerHTML = tmIcoSon(!mu); b.setAttribute('aria-label', mu ? 'Activar pitidos' : 'Silenciar pitidos'); toast(mu ? 'Pitidos silenciados' : 'Pitidos activados'); return; }
     if ((b = t.closest('[data-rl]'))) {
       var R = TM.run, a = b.dataset.rl; if (!R) return;
       if (a === 'salir') { tmCerrar(); return; }
@@ -2898,6 +2932,33 @@
       ctx.fillStyle = color; ctx.fillRect(24, 318, (W - 48) * Math.min(1, t / p.dur), 10);
     }
     if (R.enPausa && !fin) { ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0, 70, W, 240); }
+  }
+
+  // =====================================================================
+  //  TIMER LIBRE · desde el botón de herramientas, para cualquier ejercicio
+  // =====================================================================
+  var TM_TIPOS = [
+    { id: 'fortime', nom: 'FOR TIME', txt: 'Cronómetro hacia arriba, con time cap opcional', g: [{ k: 'crono', etiqueta: 'FOR TIME', cap: 0 }] },
+    { id: 'amrap', nom: 'AMRAP', txt: 'Cuenta atrás: tantas rondas como puedas', g: [{ k: 'cuenta', etiqueta: 'AMRAP', dur: 600 }] },
+    { id: 'emom', nom: 'EMOM', txt: 'Cada minuto (o cada X), N rondas', g: [{ k: 'intervalo', etiqueta: 'EMOM', rondas: 10, cada: 60 }] },
+    { id: 'tabata', nom: 'TABATA', txt: '8 rondas · 20 s trabajo / 10 s descanso', g: [{ k: 'onoff', etiqueta: 'TABATA', rondas: 8, on: 20, off: 10 }] },
+    { id: 'onoff', nom: 'INTERVALOS', txt: 'Trabajo / descanso a tu medida', g: [{ k: 'onoff', etiqueta: 'ON/OFF', rondas: 5, on: 40, off: 20 }] },
+    { id: 'cuenta', nom: 'CUENTA ATRÁS', txt: 'Un tiempo y listo (descansos, planchas…)', g: [{ k: 'cuenta', etiqueta: 'CUENTA ATRÁS', dur: 120 }] },
+    { id: 'libre', nom: 'PERSONALIZADO', txt: 'Encadena los tramos que quieras', g: [] }
+  ];
+  function abrirTimerLibre() {
+    abrirHoja('<div class="row"><h2>Timer libre</h2><button class="btn-ghost" data-close type="button">Cerrar</button></div>' +
+      '<div class="hint">Elige el formato. Después ajustas los tiempos.</div><div class="tl-tipos">' +
+      TM_TIPOS.map(function (x) { return '<button type="button" class="tl-tipo" data-tm-libre="' + x.id + '"><b>' + esc(x.nom) + '</b><span>' + esc(x.txt) + '</span></button>'; }).join('') + '</div>');
+  }
+  function tmLibre(id) {
+    var x = TM_TIPOS.filter(function (y) { return y.id === id; })[0]; if (!x) return;
+    var det = { grupos: tmCopia(x.g), repetir: 1, total: tmTotal(x.g), confianza: 'alta', notas: [] };
+    var r = { libre: true, tipo: id, det: det, texto: '', etq: '', iso: (S.data && S.data.hoy) || '', n: '', titulo: 'Timer libre · ' + x.nom, version: '', metcon: false };
+    var g = leer(tmClave(r)); if (g && g.grupos) r.propio = g;
+    var i = TM.reg.push(r) - 1;
+    r.edit = tmCopia(r.propio || det);
+    tmPintarEditor(r, i);
   }
 
   // ---------- Pedir acceso ----------
@@ -3075,7 +3136,7 @@
   // Tras 5 minutos sin usarla, el primer toque (o volver a la pestaña) busca versión nueva de la app
   // y recarga los datos. Si hay versión nueva, la página se recarga sola una vez (con el service worker
   // «primero red», una recarga basta para ver la última versión).
-  var WEB_VERSION = 'v4 · web 18';
+  var WEB_VERSION = 'v4 · web 19';
   var ultimaActividad = Date.now(), habiaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller), recargando = false;
   function recargarApp() {
     if (recargando) return;

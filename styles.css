@@ -661,3 +661,22 @@ button.phase:active{background:var(--surface-2)}
   .rl-rd svg{height:min(11vh,22vw)}
   .rl-rd span{font-size:16px;padding:0}
 }
+/* ===== web 19: herramientas (calculadora / timer libre) y sonido del timer ===== */
+.calc-ico svg{width:17px;height:17px;vertical-align:-3px;margin-right:2px}
+.herr{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.herr-op{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px;padding:18px 10px;border:1px solid var(--line);border-radius:16px;background:var(--surface)}
+.herr-op:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.herr-op b{font-family:var(--f-display);font-weight:800;font-size:20px;text-transform:uppercase}
+.herr-op span:last-child{font-size:13px;color:var(--muted)}
+.herr-ico{font:800 26px var(--f-board);line-height:1.2}
+.herr-ico i{font-style:normal;color:var(--accent)}
+.tl-tipos{display:flex;flex-direction:column;gap:8px}
+.tl-tipo{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:2px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.tl-tipo:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tl-tipo b{font-family:var(--f-display);font-weight:800;font-size:19px;letter-spacing:.02em}
+.tl-tipo span{font-size:14px;color:var(--muted)}
+.rl-son{all:unset;box-sizing:border-box;cursor:pointer;width:40px;height:40px;display:grid;place-items:center;border-radius:999px;border:1.5px solid #3a3f44;color:#c7ccd1}
+.rl-son svg{width:22px;height:22px}
+.rl-son[aria-pressed="false"]{color:#ff6b52;border-color:#ff6b52}
+.rl-son:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.herr-ico svg{width:34px;height:34px;display:block}
