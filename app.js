@@ -2711,10 +2711,9 @@
     s = Math.max(0, Math.round(s)); var hh = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60, p = function (n) { return (n < 10 ? '0' : '') + n; };
     return hh ? hh + ':' + p(m) + ':' + p(r) : p(Math.floor(s / 60)) + ':' + p(r);
   }
-  /** Reloj grande: en vertical, minutos arriba y segundos abajo (dígitos el doble de grandes); en horizontal, MM:SS en una línea. */
+  /** Reloj MM:SS en una línea (vertical y horizontal). */
   function tmReloj(seg, color) {
-    var txt = tmLedTxt(seg), k = txt.lastIndexOf(':');
-    return '<div class="rl-t-h">' + tmLed(txt, color) + '</div><div class="rl-t-v">' + tmLed(txt.slice(0, k), color) + tmLed(txt.slice(k + 1), color) + '</div>';
+    return tmLed(tmLedTxt(seg), color);
   }
   function tmRonda(p) {
     var m = /(?:Ronda|Serie) (\d+)\/(\d+)/.exec((p.sub || '') + ' ' + (p.tit || ''));
@@ -2868,7 +2867,7 @@
     var x = 0;
     String(txt).split('').forEach(function (ch) {
       if (ch === ':') {
-        ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 14;
+        ctx.fillStyle = color; ctx.shadowBlur = 0;
         [32, 70].forEach(function (cy) { ctx.beginPath(); ctx.arc(x + 12, cy, 5.5, 0, 7); ctx.fill(); });
         x += 24; return;
       }
@@ -2877,7 +2876,7 @@
         var pts = LED_SEG[k].split(' ').map(function (p) { return p.split(',').map(Number); });
         ctx.beginPath(); pts.forEach(function (p, j) { if (j) ctx.lineTo(x + p[0], p[1]); else ctx.moveTo(x + p[0], p[1]); }); ctx.closePath();
         var lit = on.indexOf(k) >= 0;
-        ctx.fillStyle = lit ? color : 'rgba(255,255,255,.06)'; ctx.shadowColor = color; ctx.shadowBlur = lit ? 14 : 0; ctx.fill();
+        ctx.fillStyle = lit ? color : 'rgba(255,255,255,.06)'; ctx.shadowBlur = 0; ctx.fill();
       });
       x += 68;
     });
@@ -3076,7 +3075,7 @@
   // Tras 5 minutos sin usarla, el primer toque (o volver a la pestaña) busca versión nueva de la app
   // y recarga los datos. Si hay versión nueva, la página se recarga sola una vez (con el service worker
   // «primero red», una recarga basta para ver la última versión).
-  var WEB_VERSION = 'v4 · web 17';
+  var WEB_VERSION = 'v4 · web 18';
   var ultimaActividad = Date.now(), habiaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller), recargando = false;
   function recargarApp() {
     if (recargando) return;

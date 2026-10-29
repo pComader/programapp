@@ -1,7 +1,7 @@
 // Fabrik Program · service worker
 // «Primero red»: con conexión siempre se sirve la última versión publicada (y se guarda copia);
 // sin conexión, la copia guardada. La programación siempre se pide al servidor (otro dominio, no pasa por aquí).
-var VERSION = 'pa-v17';
+var VERSION = 'pa-v18';
 var ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png'];
 self.addEventListener('install', function (e) { e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(ARCHIVOS); })); self.skipWaiting(); });
 self.addEventListener('activate', function (e) {

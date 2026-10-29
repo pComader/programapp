@@ -449,25 +449,16 @@ body.con-reloj{overflow:hidden}
 .rl-rd span{font:700 15px var(--f-board);color:var(--verde);opacity:.75;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px}
 .rl-t{width:100%;display:flex;justify-content:center;min-height:0}
 .rl-t svg{width:100%;max-height:34vh;height:auto}
-/* v17: números más grandes. Vertical: minutos sobre segundos; horizontal: una línea */
-.rl-t-h{display:none;width:100%;justify-content:center}
-.rl-t-v{display:flex;flex-direction:column;align-items:center;gap:1.5vh;width:100%}
-.rl-t .rl-t-v svg{max-height:27vh;width:auto;max-width:100%;height:27vh}
-.reloj .rl-caja{padding:10px 8px}
-.reloj .rl-rd svg{height:clamp(38px,8vw,64px)}
-@media (orientation:landscape){
-  .rl-t-h{display:flex}
-  .rl-t-v{display:none}
-}
-.led .off{fill:rgba(255,255,255,.045)}
-.led.rojo .on{fill:var(--rojo)} .led.rojo{filter:drop-shadow(0 0 6px rgba(255,43,28,.75)) drop-shadow(0 0 18px rgba(255,43,28,.35))}
-.led.verde .on{fill:var(--verde)} .led.verde{filter:drop-shadow(0 0 6px rgba(32,240,90,.7)) drop-shadow(0 0 16px rgba(32,240,90,.3))}
+.led .off{fill:rgba(255,255,255,.06)}
+/* LED plano, sin brillo (estilo marcador Rogue) */
+.led.rojo .on{fill:var(--rojo)}
+.led.verde .on{fill:var(--verde)}
 .reloj.pausado .rl-t svg{animation:rl-blink 1s steps(2,start) infinite}
 .reloj.fin .rl-t svg{animation:rl-blink .5s steps(2,start) 6}
 @keyframes rl-blink{to{visibility:hidden}}
 .rl-bar{height:6px;border-radius:6px;background:#161616;overflow:hidden}
-.rl-bar i{display:block;height:100%;background:var(--rojo);box-shadow:0 0 8px var(--rojo)}
-.rl-bar.verde i{background:var(--verde);box-shadow:0 0 8px var(--verde)}
+.rl-bar i{display:block;height:100%;background:var(--rojo)}
+.rl-bar.verde i{background:var(--verde)}
 .rl-info{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px}
 .rl-tit{font:800 clamp(24px,7vw,44px)/1 var(--f-display);text-transform:uppercase;letter-spacing:.03em}
 .rl-tit.rojo{color:var(--rojo)} .rl-tit.verde{color:var(--verde)}
@@ -480,24 +471,26 @@ body.con-reloj{overflow:hidden}
 .reloj .btn.btn-primary{background:var(--rojo);border-color:var(--rojo);color:#fff}
 .reloj.rest .btn.btn-primary{background:var(--verde);border-color:var(--verde);color:#000}
 .rl-big{font-size:22px;padding:18px}
-/* horizontal: el marcador ocupa casi toda la pantalla, info y botones a la derecha */
+/* horizontal (web 17b): el marcador ocupa todo el ancho; rondas a la izquierda sin solaparse; info y botones en una franja abajo */
 @media (orientation:landscape) and (max-height:600px){
-  .reloj{display:grid;grid-template-columns:1fr minmax(170px,26%);grid-template-rows:auto 1fr auto;gap:8px 14px;padding-top:calc(8px + env(safe-area-inset-top,0px));padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+  .reloj{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto minmax(0,1fr) auto;gap:8px 14px;padding-top:calc(6px + env(safe-area-inset-top,0px));padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
   .rl-top{grid-column:1/-1}
-  .rl-caja{grid-column:1;grid-row:2/4;padding:10px 14px}
-  .rl-led{flex-direction:row;align-items:center;justify-content:center;gap:18px}
-  .rl-rd{flex-direction:column;align-items:center;gap:2px}
-  .rl-rd svg{height:18vh}
-  .rl-t{width:auto;flex:1}
-  .rl-t svg{max-height:72vh;width:100%}
-  .rl-info{grid-column:2;grid-row:2;justify-content:center;align-self:center}
-  .rl-tit{font-size:clamp(18px,3.2vw,30px);overflow-wrap:anywhere}
-  .rl-sub,.rl-est{font-size:15px}
+  .rl-caja{grid-column:1/-1;grid-row:2;padding:8px 16px;gap:6px}
+  .rl-led{flex-direction:row;align-items:center;justify-content:center;gap:3vw;flex:1;min-height:0}
+  .rl-rd{flex-direction:column;align-items:center;gap:2px;flex:none}
+  .reloj .rl-rd svg{height:24vh}
+  .rl-rd span{font-size:12px;padding:0}
+  .rl-t{flex:1;min-width:0;height:100%;align-items:center}
+  .rl-t svg{width:100%;height:100%;max-height:calc(100vh - 150px)}
+  .rl-info{grid-column:1;grid-row:3;flex-direction:row;align-items:baseline;gap:4px 12px;text-align:left;flex-wrap:wrap;min-width:0;overflow:hidden;max-height:52px}
+  .rl-tit{font-size:22px}
+  .rl-sub,.rl-est{font-size:14px;padding:2px 8px}
+  .rl-sub{padding:0;max-width:none}
   .rl-sig{font-size:12px}
-  .rl-btns{grid-column:2;grid-row:3}
-  .rl-row{grid-template-columns:1fr 1fr 1fr;gap:6px}
-  .rl-row .btn{padding:10px 4px;font-size:14px}
-  .rl-big{font-size:18px;padding:12px}
+  .rl-btns{grid-column:2;grid-row:3;flex-direction:row;align-items:center;gap:6px}
+  .rl-row{display:flex;gap:6px}
+  .rl-row .btn{padding:9px 14px;font-size:14px;width:auto}
+  .rl-big{font-size:16px;padding:9px 18px;width:auto}
 }
 @media (prefers-reduced-motion:reduce){.reloj{transition:none}}
 /* v4.2 · seguimiento */
@@ -660,14 +653,11 @@ button.phase:active{background:var(--surface-2)}
 .gd-met>summary{cursor:pointer}
 /* login: «otro correo» */
 #mailf[hidden]{display:none}
-/* horizontal: el contador de rondas pasa a la esquina y el reloj usa todo el ancho del marcador */
-@media (orientation:landscape) and (max-height:600px){
-  .reloj{grid-template-columns:1fr minmax(150px,22%)}
-  .rl-caja{position:relative;padding:8px 10px}
-  .rl-led{display:block}
-  .reloj .rl-rd{position:absolute;top:8px;left:12px;flex-direction:row;align-items:flex-end;gap:6px;z-index:1}
-  .reloj .rl-rd svg{height:12vh}
-  .reloj .rl-rd span{font-size:12px;padding-bottom:2px}
-  .rl-t{width:100%}
-  .rl-t-h svg{width:100%;max-height:74vh}
+/* vertical (web 17b): reloj en una línea; las rondas, más grandes, aprovechan el alto libre */
+@media (orientation:portrait){
+  .rl-caja{padding:12px 8px}
+  .rl-led{gap:4vh}
+  .rl-rd{flex-direction:column;align-items:center;gap:4px}
+  .rl-rd svg{height:min(11vh,22vw)}
+  .rl-rd span{font-size:16px;padding:0}
 }
