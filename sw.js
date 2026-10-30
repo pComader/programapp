@@ -1,22 +1,39 @@
 // Fabrik Program · service worker
-// «Primero red»: con conexión siempre se sirve la última versión publicada (y se guarda copia);
-// sin conexión, la copia guardada. La programación siempre se pide al servidor (otro dominio, no pasa por aquí).
-var VERSION = 'pa-v19';
+// «Primero la copia» (web 20): la app se abre al instante desde el móvil, también sin conexión, y se
+// actualiza por detrás. Cuando se publica una versión nueva (VERSION cambia), el nuevo service worker
+// la descarga entera y la app se recarga sola una vez. La programación se pide siempre al servidor.
+var VERSION = 'pa-v20';
 var ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png'];
-self.addEventListener('install', function (e) { e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(ARCHIVOS); })); self.skipWaiting(); });
+// Firebase (otro dominio, versión fija): se guarda para que la app arranque también sin conexión
+var EXTERNOS = ['https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js', 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js'];
+self.addEventListener('install', function (e) {
+  e.waitUntil(caches.open(VERSION).then(function (c) {
+    return c.addAll(ARCHIVOS.map(function (u) { return new Request(u, { cache: 'reload' }); })).then(function () { return Promise.all(EXTERNOS.map(function (u) { return c.add(u).catch(function () {}); })); });
+  }));
+  self.skipWaiting();
+});
 self.addEventListener('activate', function (e) {
   e.waitUntil(caches.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k !== VERSION; }).map(function (k) { return caches.delete(k); })); }));
   self.clients.claim();
 });
 self.addEventListener('fetch', function (e) {
   var u = new URL(e.request.url);
+  if (e.request.method === 'GET' && EXTERNOS.indexOf(e.request.url) >= 0) {   // primero la copia: no cambia nunca
+    e.respondWith(caches.open(VERSION).then(function (c) { return c.match(e.request).then(function (hit) { return hit || fetch(e.request).then(function (r) { if (r.ok) c.put(e.request, r.clone()); return r; }); }); }));
+    return;
+  }
   if (e.request.method !== 'GET' || u.origin !== location.origin) return;
   e.respondWith(caches.open(VERSION).then(function (c) {
-    // no-cache: revalida con GitHub Pages en vez de usar la caché HTTP (10 min)
-    return fetch(new Request(e.request, { cache: 'no-cache' })).then(function (r) {
-      if (r.ok) c.put(e.request, r.clone());
-      return r;
-    }).catch(function () { return c.match(e.request).then(function (hit) { return hit || c.match('index.html'); }); });
+    var nav = e.request.mode === 'navigate';
+    return c.match(nav ? 'index.html' : e.request, { ignoreSearch: nav }).then(function (hit) {
+      // (una navegación no se puede clonar con opciones: se pide index.html directamente)
+      var red = (nav ? fetch('index.html', { cache: 'no-cache' }) : fetch(new Request(e.request, { cache: 'no-cache' }))).then(function (r) {
+        if (r.ok) c.put(nav ? 'index.html' : e.request, r.clone());
+        return r;
+      });
+      if (hit) { e.waitUntil(red.catch(function () {})); return hit; }   // al instante; se actualiza por detrás
+      return red.catch(function () { return c.match('index.html'); });
+    });
   }));
 });
 
