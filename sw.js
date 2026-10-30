@@ -2,7 +2,7 @@
 // «Primero la copia» (web 20): la app se abre al instante desde el móvil, también sin conexión, y se
 // actualiza por detrás. Cuando se publica una versión nueva (VERSION cambia), el nuevo service worker
 // la descarga entera y la app se recarga sola una vez. La programación se pide siempre al servidor.
-var VERSION = 'pa-v20';
+var VERSION = 'pa-v21';
 var ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png'];
 // Firebase (otro dominio, versión fija): se guarda para que la app arranque también sin conexión
 var EXTERNOS = ['https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js', 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js'];
